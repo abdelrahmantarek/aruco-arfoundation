@@ -35,7 +35,6 @@ namespace ARFoundationWithOpenCVForUnityExample
         // Performance optimization - frame rate control
         private int frameSkipCount = 30;  // Update every 30 frames
         private int currentFrameCount = 0;
-        private bool forceUpdate = false;
 
         #endregion
 
@@ -561,7 +560,7 @@ namespace ARFoundationWithOpenCVForUnityExample
         /// </summary>
         public void ForceNextUpdate()
         {
-            forceUpdate = true;
+            currentFrameCount = frameSkipCount; // Force update on next call
         }
 
         #endregion

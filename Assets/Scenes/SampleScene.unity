@@ -4177,13 +4177,15 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 6f3ddd2fe9e7b4653ae333434691cfa4, type: 3}
   m_Name: 
   m_EditorClassIdentifier: 
+  detectFramesEvery: 15
+  processingScale: 0.5
+  autoOptimizePerformance: 1
   dictionaryId: 10
   applyEstimationPose: 1
   markerLength: 0.188
   arGameObject: {fileID: 888923960}
   xROrigin: {fileID: 2031589731}
   enableLerpFilter: 0
-  frameSkipCount: 5
 --- !u!114 &1045353774
 MonoBehaviour:
   m_ObjectHideFlags: 0

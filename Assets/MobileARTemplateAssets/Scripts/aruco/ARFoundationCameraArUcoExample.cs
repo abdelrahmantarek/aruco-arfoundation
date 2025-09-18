@@ -28,6 +28,23 @@ namespace ARFoundationWithOpenCVForUnityExample
     public class ARFoundationCameraArUcoExample : MonoBehaviour
     {
 
+        [Header("Performance")]
+        [SerializeField]
+        public int detectFramesEvery = 30; // تم تغييرها من 15 إلى 30
+
+        private int frameCount = 0;
+
+        [Header("Processing Optimization")]
+        [SerializeField]
+        private float processingScale = 0.5f; // معالجة 50% من الدقة
+        private Mat scaledMat;
+
+        [Header("Auto Performance")]
+        [SerializeField]
+        private bool autoOptimizePerformance = true;
+        private float lastPerformanceCheck = 0f;
+        private int consecutiveLowFPS = 0;
+
         /// <summary>
         /// The dictionary identifier.
         /// </summary>
@@ -63,12 +80,7 @@ namespace ARFoundationWithOpenCVForUnityExample
         /// </summary>
         public bool enableLerpFilter;
 
-        [Header("Performance")]
-        /// <summary>
-        /// Frame skip count for performance optimization (update every N frames)
-        /// </summary>
-        [Range(1, 60)]
-        public int frameSkipCount = 3;
+
 
         /// <summary>
         /// The texture.
@@ -91,7 +103,7 @@ namespace ARFoundationWithOpenCVForUnityExample
         private ARObjectManager arObjectManager;
 
         // Performance optimization for ProcessFrame
-        private int currentFrameCount = 0;
+
 
 #if ENABLE_INPUT_SYSTEM
         private InputAction forceProcessAction;
@@ -100,8 +112,7 @@ namespace ARFoundationWithOpenCVForUnityExample
         // Use this for initialization
         void Start()
         {
-
-            // Hide the original AR object immediately to prevent it from showing at startup
+            // Hide the original AR object immediately
             if (arGameObject != null && arGameObject.gameObject != null)
             {
                 arGameObject.gameObject.SetActive(false);
@@ -109,20 +120,25 @@ namespace ARFoundationWithOpenCVForUnityExample
             }
 
             webCamTextureToMatHelper = gameObject.GetComponent<ARFoundationCamera2MatHelper>();
-            webCamTextureToMatHelper.OutputColorFormat = Source2MatHelperColorFormat.RGBA;
+
+            if (webCamTextureToMatHelper != null)
+            {
+                webCamTextureToMatHelper.RequestedFPS = 60f;
+                webCamTextureToMatHelper.OutputColorFormat = Source2MatHelperColorFormat.RGBA;
 #if (UNITY_IOS || UNITY_ANDROID) && !UNITY_EDITOR && !DISABLE_ARFOUNDATION_API
-            webCamTextureToMatHelper.FrameMatAcquired += OnFrameMatAcquired;
-#endif // (UNITY_IOS || UNITY_ANDROID) && !UNITY_EDITOR && !DISABLE_ARFOUNDATION_API
-            webCamTextureToMatHelper.Initialize();
+                webCamTextureToMatHelper.FrameMatAcquired += OnFrameMatAcquired;
+#endif
+                webCamTextureToMatHelper.Initialize();
+            }
+            else
+            {
+                Debug.LogError("ARFoundationCamera2MatHelper component not found!");
+            }
 
-
-            // Initialize managers
             InitializeManagers();
 
 #if ENABLE_INPUT_SYSTEM
-            // إعداد Input Action للاختبار
             forceProcessAction = new InputAction("ForceProcess", InputActionType.Button, "<Keyboard>/space");
-            forceProcessAction.performed += OnForceProcessPerformed;
             forceProcessAction.Enable();
 #endif
         }
@@ -151,10 +167,11 @@ namespace ARFoundationWithOpenCVForUnityExample
             arObjectManager = new ARObjectManager(arGameObject, xROrigin, enableLerpFilter);
             Debug.Log($"ARObjectManager initialized: {arObjectManager != null}");
 
+
             // Set performance optimization settings
             if (arObjectManager != null)
             {
-                arObjectManager.FrameSkipCount = frameSkipCount;
+                // arObjectManager.FrameSkipCount = detectFramesEvery;
                 arObjectManager.HideObject();
             }
         }
@@ -176,7 +193,7 @@ namespace ARFoundationWithOpenCVForUnityExample
 
             // التأكد من أن الكاميرا تعمل
             Debug.Log($"Camera playing: {webCamTextureToMatHelper.IsPlaying()}");
-            Debug.Log($"Frame skip count: {frameSkipCount}");
+
 
             // Ensure original AR object stays hidden during camera initialization
             if (arObjectManager != null)
@@ -292,7 +309,14 @@ namespace ARFoundationWithOpenCVForUnityExample
         // Update is called once per frame
         void Update()
         {
-            if (webCamTextureToMatHelper.IsPlaying() && webCamTextureToMatHelper.DidUpdateThisFrame())
+            // Auto performance optimization
+            if (autoOptimizePerformance && Time.time - lastPerformanceCheck > 2f)
+            {
+                OptimizePerformanceIfNeeded();
+                lastPerformanceCheck = Time.time;
+            }
+
+            if (webCamTextureToMatHelper != null && webCamTextureToMatHelper.IsPlaying() && webCamTextureToMatHelper.DidUpdateThisFrame())
             {
                 Mat rgbaMat = webCamTextureToMatHelper.GetMat();
                 ProcessFrame(rgbaMat);
@@ -301,117 +325,91 @@ namespace ARFoundationWithOpenCVForUnityExample
 
 #endif // (UNITY_IOS || UNITY_ANDROID) && !UNITY_EDITOR && !DISABLE_ARFOUNDATION_API
 
+        private void OptimizePerformanceIfNeeded()
+        {
+            float currentFPS = 1f / Time.deltaTime;
+
+            if (currentFPS < 20f) // إذا FPS أقل من 20
+            {
+                consecutiveLowFPS++;
+
+                if (consecutiveLowFPS >= 3) // 3 مرات متتالية
+                {
+                    // تحسين تلقائي
+                    detectFramesEvery = Mathf.Min(detectFramesEvery + 2, 10);
+                    webCamTextureToMatHelper.RequestedFPS = 20f;
+
+                    Debug.Log($"Auto-optimized: detectFramesEvery={detectFramesEvery}, FPS=20");
+                    consecutiveLowFPS = 0;
+                }
+            }
+            else
+            {
+                consecutiveLowFPS = 0;
+            }
+        }
+
         /// <summary>
         /// Process camera frame using the new manager system with performance optimization
         /// </summary>
         /// <param name="rgbaMat">Input RGBA frame</param>
         private void ProcessFrame(Mat rgbaMat)
         {
+            frameCount++;
+            if (frameCount % detectFramesEvery != 0) return;
+
             if (rgbaMat == null || rgbMat == null) return;
 
-            // Performance optimization - check if we should process this frame
-            currentFrameCount++;
-            bool shouldProcess = currentFrameCount >= frameSkipCount;
-
-            // Debug log للتأكد من استدعاء الدالة
-            if (currentFrameCount % 30 == 0) // كل 30 إطار
-            {
-                Debug.Log($"ProcessFrame called - Frame: {currentFrameCount}, ShouldProcess: {shouldProcess}");
-                Debug.Log($"Image size: {rgbaMat.cols()}x{rgbaMat.rows()}");
-            }
-
-            // Always update the display texture, but skip heavy processing if not needed
-            if (!shouldProcess)
-            {
-                // Just update the texture without processing
-                Imgproc.cvtColor(rgbaMat, rgbMat, Imgproc.COLOR_RGBA2RGB);
-                Imgproc.cvtColor(rgbMat, rgbaMat, Imgproc.COLOR_RGB2RGBA);
-                OpenCVMatUtils.MatToTexture2D(rgbaMat, texture);
-                return;
-            }
-
-            // Reset frame counter for heavy processing
-            currentFrameCount = 0;
-            Debug.Log($"Processing frame for ArUco detection... Dictionary: {dictionaryId}");
-            Debug.Log($"Apply pose estimation: {applyEstimationPose}");
-
-            // Convert RGBA to RGB
+            // تحويل واحد فقط RGBA → RGB
             Imgproc.cvtColor(rgbaMat, rgbMat, Imgproc.COLOR_RGBA2RGB);
 
-            // Debug: Check mat status
-            Debug.Log($"rgbMat status: rows={rgbMat.rows()}, cols={rgbMat.cols()}, empty={rgbMat.empty()}");
-            Debug.Log($"arucoDetectionManager null? {arucoDetectionManager == null}");
+            // تعطيل undistortion للأجهزة الضعيفة
+            bool enableUndistortion = SystemInfo.systemMemorySize > 3000; // فقط للأجهزة > 3GB RAM
 
-            // Undistort image using camera parameters
-            if (cameraParametersManager != null && cameraParametersManager.AreParametersValid())
+            if (enableUndistortion && cameraParametersManager?.AreParametersValid() == true)
             {
                 OpenCVForUnity.Calib3dModule.Calib3d.undistort(rgbMat, rgbMat,
                     cameraParametersManager.CameraMatrix,
                     cameraParametersManager.DistortionCoeffs);
-                Debug.Log("Image undistorted successfully");
-            }
-            else
-            {
-                Debug.Log("Skipping undistortion - camera parameters not valid");
             }
 
-            // Detect ArUco markers
+            Debug.Log($"Processing frame for ArUco detection... Dictionary: {dictionaryId}");
+            Debug.Log($"Apply pose estimation: {applyEstimationPose}");
+
+            Debug.Log($"rgbMat status: rows={rgbMat.rows()}, cols={rgbMat.cols()}, empty={rgbMat.empty()}");
+            Debug.Log($"arucoDetectionManager null? {arucoDetectionManager == null}");
+
+            // ArUco detection
             if (arucoDetectionManager != null)
             {
-                Debug.Log("About to call DetectMarkers...");
                 bool markersDetected = arucoDetectionManager.DetectMarkers(rgbMat);
                 Debug.Log($"DetectMarkers returned: {markersDetected}");
 
-                if (markersDetected)
+                if (markersDetected && applyEstimationPose && poseEstimationManager != null && cameraParametersManager != null)
                 {
-                    Debug.Log("Markers detected! Drawing them...");
-                    // Draw detected markers
-                    // arucoDetectionManager.DrawDetectedMarkers(rgbMat);
+                    var poseDataList = poseEstimationManager.EstimateMarkerspose(
+                        arucoDetectionManager, cameraParametersManager, rgbMat);
 
-                    // Estimate pose if enabled
-                    if (applyEstimationPose && poseEstimationManager != null && cameraParametersManager != null)
+                    if (poseDataList.Count > 0 && arObjectManager != null)
                     {
-                        var poseDataList = poseEstimationManager.EstimateMarkerspose(
-                            arucoDetectionManager, cameraParametersManager, rgbMat);
-
-                        // Update AR objects for ALL detected markers
-                        if (poseDataList.Count > 0 && arObjectManager != null)
+                        List<int> markerIds = new List<int>();
+                        int markerCount = arucoDetectionManager.GetDetectedMarkerCount();
+                        for (int i = 0; i < markerCount; i++)
                         {
-                            // Get marker IDs
-                            List<int> markerIds = new List<int>();
-                            int markerCount = arucoDetectionManager.GetDetectedMarkerCount();
-                            for (int i = 0; i < markerCount; i++)
-                            {
-                                markerIds.Add(arucoDetectionManager.GetMarkerId(i));
-                            }
-
-                            // Hide the original object to avoid duplication
-                            arObjectManager.HideObject();
-
-                            // Update multiple objects (force update since we already checked frame rate)
-                            arObjectManager.UpdateMultipleObjects(poseDataList, markerIds, true);
+                            markerIds.Add(arucoDetectionManager.GetMarkerId(i));
                         }
-                        else if (arObjectManager != null)
-                        {
-                            // Hide all objects if pose estimation failed
-                            arObjectManager.HideAllObjects();
-                        }
+
+                        arObjectManager.HideObject();
+                        arObjectManager.UpdateMultipleObjects(poseDataList, markerIds, true);
                     }
                     else if (arObjectManager != null)
                     {
-                        // Hide the original object when not using pose estimation
-                        arObjectManager.HideObject();
-                        // Note: Multiple objects system doesn't work without pose estimation
-                    }
-                }
-                else
-                {
-                    Debug.Log("No markers detected");
-                    if (arObjectManager != null)
-                    {
-                        // Hide ALL AR objects if no markers detected
                         arObjectManager.HideAllObjects();
                     }
+                }
+                else if (arObjectManager != null)
+                {
+                    arObjectManager.HideObject();
                 }
             }
             else
@@ -419,10 +417,8 @@ namespace ARFoundationWithOpenCVForUnityExample
                 Debug.LogError("arucoDetectionManager is null!");
             }
 
-            // Convert back to RGBA
+            // تحويل مرة واحدة في النهاية
             Imgproc.cvtColor(rgbMat, rgbaMat, Imgproc.COLOR_RGB2RGBA);
-
-            // Update texture
             OpenCVMatUtils.MatToTexture2D(rgbaMat, texture);
         }
 
@@ -482,41 +478,8 @@ namespace ARFoundationWithOpenCVForUnityExample
             }
         }
 
-        /// <summary>
-        /// Update frame skip count for performance optimization
-        /// </summary>
-        /// <param name="newFrameSkipCount">New frame skip count</param>
-        public void UpdateFrameSkipCount(int newFrameSkipCount)
-        {
-            frameSkipCount = Mathf.Clamp(newFrameSkipCount, 1, 60);
 
-            if (arObjectManager != null)
-            {
-                arObjectManager.FrameSkipCount = frameSkipCount;
-            }
 
-            // Reset frame counter to apply new setting immediately
-            currentFrameCount = 0;
-
-            Debug.Log($"Frame skip count updated to: {frameSkipCount}");
-        }
-
-        /// <summary>
-        /// Force immediate processing of next frame
-        /// </summary>
-        public void ForceNextFrameProcessing()
-        {
-            currentFrameCount = frameSkipCount; // This will trigger processing on next frame
-        }
-
-        /// <summary>
-        /// Get current frame processing status
-        /// </summary>
-        /// <returns>Information about frame processing</returns>
-        public string GetFrameProcessingStatus()
-        {
-            return $"Frame: {currentFrameCount}/{frameSkipCount} - Next process in: {frameSkipCount - currentFrameCount} frames";
-        }
 
         /// <summary>
         /// Handle camera facing change request
@@ -591,7 +554,6 @@ namespace ARFoundationWithOpenCVForUnityExample
 #if ENABLE_INPUT_SYSTEM
             if (forceProcessAction != null)
             {
-                forceProcessAction.performed -= OnForceProcessPerformed;
                 forceProcessAction.Dispose();
             }
 #endif
@@ -603,11 +565,7 @@ namespace ARFoundationWithOpenCVForUnityExample
         #endregion
 
 #if ENABLE_INPUT_SYSTEM
-        private void OnForceProcessPerformed(InputAction.CallbackContext context)
-        {
-            ForceNextFrameProcessing();
-            Debug.Log("Forced next frame processing");
-        }
+
 #endif
     }
 }

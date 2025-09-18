@@ -263,7 +263,7 @@ namespace ARFoundationWithOpenCVForUnity.UnityIntegration.Helper.Source2Mat
         }
 
 
-#region --ARFoundation CameraManager Properties--
+        #region --ARFoundation CameraManager Properties--
 
         public virtual bool AutoFocusEnabled => GetARCameraManager() != null ? GetARCameraManager().autoFocusEnabled : default;
 
@@ -334,7 +334,7 @@ namespace ARFoundationWithOpenCVForUnity.UnityIntegration.Helper.Source2Mat
             }
         }
 
-#endregion
+        #endregion
 
 
 #if (UNITY_IOS || UNITY_ANDROID) && !UNITY_EDITOR && !DISABLE_ARFOUNDATION_API
@@ -619,7 +619,7 @@ namespace ARFoundationWithOpenCVForUnity.UnityIntegration.Helper.Source2Mat
         }
 
 #if !UNITY_EDITOR && !UNITY_ANDROID
-        protected bool isScreenSizeChangeWaiting = false;
+        protected new bool isScreenSizeChangeWaiting = false;
 #endif // !UNITY_EDITOR && !UNITY_ANDROID
 
         // Update is called once per frame
