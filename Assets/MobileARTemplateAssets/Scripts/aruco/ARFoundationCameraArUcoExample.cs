@@ -12,7 +12,6 @@ using UnityEngine.XR.ARSubsystems;
 using UnityEngine.XR.ARFoundation;
 using Unity.XR.CoreUtils;
 using static OpenCVForUnity.UnityIntegration.OpenCVARUtils;
-using OpenCVForUnityExample;
 using OpenCVForUnity.UnityIntegration.Helper.AR;
 #if ENABLE_INPUT_SYSTEM
 using UnityEngine.InputSystem;

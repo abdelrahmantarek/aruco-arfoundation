@@ -6,7 +6,6 @@ using UnityEngine.SceneManagement;
 using UnityEngine.UI;
 using UnityEngine.XR.ARSubsystems;
 using System;
-using OpenCVForUnityExample;
 
 namespace ARFoundationWithOpenCVForUnityExample
 {
