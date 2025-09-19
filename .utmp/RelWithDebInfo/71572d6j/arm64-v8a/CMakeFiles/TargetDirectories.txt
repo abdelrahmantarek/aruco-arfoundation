@@ -1,0 +1,5 @@
+/Users/abdulrahman/Documents/workspace/clients/mr fras jaff/ArLastState/.utmp/RelWithDebInfo/71572d6j/arm64-v8a/CMakeFiles/edit_cache.dir
+/Users/abdulrahman/Documents/workspace/clients/mr fras jaff/ArLastState/.utmp/RelWithDebInfo/71572d6j/arm64-v8a/CMakeFiles/rebuild_cache.dir
+/Users/abdulrahman/Documents/workspace/clients/mr fras jaff/ArLastState/.utmp/RelWithDebInfo/71572d6j/arm64-v8a/GameActivity/CMakeFiles/game.dir
+/Users/abdulrahman/Documents/workspace/clients/mr fras jaff/ArLastState/.utmp/RelWithDebInfo/71572d6j/arm64-v8a/GameActivity/CMakeFiles/edit_cache.dir
+/Users/abdulrahman/Documents/workspace/clients/mr fras jaff/ArLastState/.utmp/RelWithDebInfo/71572d6j/arm64-v8a/GameActivity/CMakeFiles/rebuild_cache.dir

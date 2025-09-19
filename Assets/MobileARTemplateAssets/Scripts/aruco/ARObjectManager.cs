@@ -5,6 +5,8 @@ using System.Collections.Generic;
 using UnityEngine;
 using Unity.XR.CoreUtils;
 using static OpenCVForUnity.UnityIntegration.OpenCVARUtils;
+using UnityEngine.XR.ARFoundation;
+using UnityEngine.XR.ARSubsystems;
 
 namespace ARFoundationWithOpenCVForUnityExample
 {
@@ -12,16 +14,29 @@ namespace ARFoundationWithOpenCVForUnityExample
     /// Manager for AR objects and their transformations
     /// Handles object positioning, filtering, and coordinate transformations
     /// </summary>
-    public class ARObjectManager
+    public class ARObjectManager : MonoBehaviour
     {
         #region Private Fields
 
-        private ARGameObject arGameObject;
-        private XROrigin xrOrigin;
-        private bool enableLerpFilter;
+        [SerializeField] public ARGameObject arGameObject;
+
+
+        [SerializeField] public XROrigin xrOrigin;
+        [SerializeField] public ARRaycastManager raycastManager;
+
+
         private Matrix4x4 fitARFoundationBackgroundMatrix;
         private Matrix4x4 fitHelpersFlipMatrix;
         private bool isInitialized = false;
+
+        /// <summary>
+        /// Determines if enable leap filter.
+        /// </summary>
+        [SerializeField()]
+        public bool enableLerpFilter = false;
+
+        private Pose? lastDetectedPose = null;
+
 
         // Lerp filtering parameters
         private float lerpSpeed = 5.0f;
@@ -36,6 +51,11 @@ namespace ARFoundationWithOpenCVForUnityExample
         private int frameSkipCount = 30;  // Update every 30 frames
         private int currentFrameCount = 0;
 
+
+        public enum PlacementMode { Direct, SnapToPlane }
+        [SerializeField] private PlacementMode placementMode = PlacementMode.SnapToPlane;
+
+
         #endregion
 
         #region Properties
@@ -43,11 +63,6 @@ namespace ARFoundationWithOpenCVForUnityExample
         /// <summary>
         /// Gets or sets whether lerp filtering is enabled
         /// </summary>
-        public bool EnableLerpFilter
-        {
-            get => enableLerpFilter;
-            set => enableLerpFilter = value;
-        }
 
         /// <summary>
         /// Gets or sets the lerp speed for smooth transitions
@@ -97,9 +112,18 @@ namespace ARFoundationWithOpenCVForUnityExample
         /// <param name="arGameObject">The AR game object to manage</param>
         /// <param name="xrOrigin">The XR Origin for coordinate transformations</param>
         /// <param name="enableLerpFilter">Enable smooth filtering</param>
-        public ARObjectManager(ARGameObject arGameObject, XROrigin xrOrigin, bool enableLerpFilter = false)
+        public ARObjectManager()
         {
-            Initialize(arGameObject, xrOrigin, enableLerpFilter);
+
+        }
+
+        void Start()
+        {
+            Initialize();
+            if (arGameObject != null)
+            {
+                originalScale = arGameObject.transform.localScale; // نخزن الحجم اللي جه بيه
+            }
         }
 
         /// <summary>
@@ -108,11 +132,8 @@ namespace ARFoundationWithOpenCVForUnityExample
         /// <param name="arGameObject">The AR game object to manage</param>
         /// <param name="xrOrigin">The XR Origin for coordinate transformations</param>
         /// <param name="enableLerpFilter">Enable smooth filtering</param>
-        public void Initialize(ARGameObject arGameObject, XROrigin xrOrigin, bool enableLerpFilter = false)
+        public void Initialize()
         {
-            this.arGameObject = arGameObject;
-            this.xrOrigin = xrOrigin;
-            this.enableLerpFilter = enableLerpFilter;
 
             if (arGameObject == null)
             {
@@ -172,55 +193,154 @@ namespace ARFoundationWithOpenCVForUnityExample
         /// Update AR object transform from pose data
         /// </summary>
         /// <param name="poseData">Pose data from marker detection</param>
-        public void UpdateObjectTransform(PoseData poseData)
-        {
-            if (!isInitialized)
-            {
-                Debug.LogWarning("ARObjectManager: Not initialized");
-                return;
-            }
+        // public void UpdateObjectTransform(PoseData poseData)
+        // {
+        //     if (!isInitialized)
+        //     {
+        //         Debug.LogWarning("ARObjectManager: Not initialized");
+        //         return;
+        //     }
 
-            // Ensure object is visible when updating transform
-            ShowObject();
+        //     // Ensure object is visible when updating transform
+        //     ShowObject();
 
-            // Convert pose data to transformation matrix
-            Matrix4x4 armMatrix = OpenCVARUtils.ConvertPoseDataToMatrix(ref poseData, true);
+        //     // Convert pose data to transformation matrix
+        //     Matrix4x4 armMatrix = OpenCVARUtils.ConvertPoseDataToMatrix(ref poseData, true);
 
-            UpdateObjectTransform(armMatrix);
-        }
+        //     UpdateObjectTransform(armMatrix);
+        // }
 
         /// <summary>
         /// Update AR object transform from transformation matrix
         /// </summary>
         /// <param name="armMatrix">Transformation matrix in camera space</param>
-        public void UpdateObjectTransform(Matrix4x4 armMatrix)
-        {
-            if (!isInitialized)
-            {
-                Debug.LogWarning("ARObjectManager: Not initialized");
-                return;
-            }
+        // public void UpdateObjectTransform(Matrix4x4 armMatrix)
+        // {
+        //     if (!isInitialized)
+        //     {
+        //         Debug.LogWarning("ARObjectManager: Not initialized");
+        //         return;
+        //     }
 
-            // Transform the matrix from camera space to world space using the ARFoundation camera's transform
+        //     // Transform the matrix from camera space to world space using the ARFoundation camera's transform
+        //     Matrix4x4 worldMatrix = xrOrigin.Camera.transform.localToWorldMatrix * armMatrix;
+
+        //     // Apply transformation matrices if available
+        //     if (fitARFoundationBackgroundMatrix != Matrix4x4.zero)
+        //     {
+        //         worldMatrix = fitARFoundationBackgroundMatrix * worldMatrix;
+        //     }
+
+        //     if (fitHelpersFlipMatrix != Matrix4x4.zero)
+        //     {
+        //         worldMatrix = fitHelpersFlipMatrix * worldMatrix;
+        //     }
+
+        //     // Apply the transformation
+        //     ApplyDirectTransform(worldMatrix);
+
+        //     hasValidPose = true;
+        //     lastValidMatrix = worldMatrix;
+        // }
+
+
+        // private Dictionary<int, bool> isPlacedOnPlane = new Dictionary<int, bool>();
+
+        // private void UpdateObjectTransform(GameObject obj, PoseData poseData, int markerId)
+        // {
+        //     if (obj == null) return;
+
+        //     float smoothFactor = 5f;
+
+        //     // Pose من ArUco
+        //     Matrix4x4 armMatrix = OpenCVARUtils.ConvertPoseDataToMatrix(ref poseData, true);
+        //     Matrix4x4 worldMatrix = xrOrigin.Camera.transform.localToWorldMatrix * armMatrix;
+
+        //     Vector3 pos = worldMatrix.GetColumn(3);
+        //     Quaternion rot = Quaternion.LookRotation(worldMatrix.GetColumn(2), worldMatrix.GetColumn(1));
+
+        //     // إذا لسا ما ثبتناه على plane
+        //     if (!isPlacedOnPlane.ContainsKey(markerId) || !isPlacedOnPlane[markerId])
+        //     {
+        //         obj.transform.SetPositionAndRotation(pos, rot); // زي الطريقة القديمة (في الهواء)
+
+        //         // جرب تلقى plane
+        //         Vector2 screenPoint = xrOrigin.Camera.WorldToScreenPoint(pos);
+        //         List<ARRaycastHit> hits = new List<ARRaycastHit>();
+
+        //         if (raycastManager.Raycast(screenPoint, hits, TrackableType.PlaneWithinPolygon))
+        //         {
+        //             Pose hitPose = hits[0].pose;
+        //             obj.transform.SetPositionAndRotation(hitPose.position, rot);
+
+        //             // اعتبره مثبت
+        //             isPlacedOnPlane[markerId] = true;
+        //             Debug.Log($"Marker {markerId} moved from air → Plane ✅");
+        //         }
+        //     }
+        //     else
+        //     {
+        //         // مثبت على plane → بس عدّل الدوران بالسلاسة
+        //         obj.transform.rotation = Quaternion.Slerp(obj.transform.rotation, rot, Time.deltaTime * smoothFactor);
+        //     }
+
+        //     // الحجم مضبوط
+        //     float scaleFactor = markerLength / 1.0f;
+        //     obj.transform.localScale = originalScale * scaleFactor;
+        // }
+
+
+        private Dictionary<int, bool> isPlacedOnPlane = new Dictionary<int, bool>();
+        [SerializeField] private float updateDistanceThreshold = 0.02f; // 2 سم تقريباً
+        [SerializeField] private float smoothFactor = 5f;
+
+        private void UpdateObjectTransform(GameObject obj, PoseData poseData, int markerId)
+        {
+            if (obj == null) return;
+
+            // Pose من ArUco
+            Matrix4x4 armMatrix = OpenCVARUtils.ConvertPoseDataToMatrix(ref poseData, true);
             Matrix4x4 worldMatrix = xrOrigin.Camera.transform.localToWorldMatrix * armMatrix;
 
-            // Apply transformation matrices if available
-            if (fitARFoundationBackgroundMatrix != Matrix4x4.zero)
+            Vector3 markerPos = worldMatrix.GetColumn(3);
+            Quaternion markerRot = Quaternion.LookRotation(worldMatrix.GetColumn(2), worldMatrix.GetColumn(1));
+
+            // وضع افتراضي: في الهواء
+            Vector3 targetPos = markerPos;
+            Quaternion targetRot = markerRot;
+
+            // جرب Raycast على plane
+            Vector2 screenPoint = xrOrigin.Camera.WorldToScreenPoint(markerPos);
+            List<ARRaycastHit> hits = new List<ARRaycastHit>();
+
+            if (raycastManager.Raycast(screenPoint, hits, TrackableType.PlaneWithinPolygon))
             {
-                worldMatrix = fitARFoundationBackgroundMatrix * worldMatrix;
+                Pose hitPose = hits[0].pose;
+                targetPos = hitPose.position;
+
+                // اعتبره مثبت على plane
+                isPlacedOnPlane[markerId] = true;
             }
 
-            if (fitHelpersFlipMatrix != Matrix4x4.zero)
+            // تحديث الموقع فقط إذا الفرق أكبر من threshold
+            if (!obj.activeInHierarchy)
+                obj.SetActive(true); // تأكد أنه ظاهر دائمًا
+
+            if (Vector3.Distance(obj.transform.position, targetPos) > updateDistanceThreshold)
             {
-                worldMatrix = fitHelpersFlipMatrix * worldMatrix;
+                obj.transform.position = Vector3.Lerp(obj.transform.position, targetPos, Time.deltaTime * smoothFactor);
             }
 
-            // Apply the transformation
-            ApplyDirectTransform(worldMatrix);
+            if (Quaternion.Angle(obj.transform.rotation, targetRot) > 1f)
+            {
+                obj.transform.rotation = Quaternion.Slerp(obj.transform.rotation, targetRot, Time.deltaTime * smoothFactor);
+            }
 
-            hasValidPose = true;
-            lastValidMatrix = worldMatrix;
+            // الحجم مضبوط
+            float scaleFactor = markerLength / 1.0f;
+            obj.transform.localScale = originalScale * scaleFactor;
         }
+
 
         /// <summary>
         /// Apply transformation directly without filtering
@@ -402,7 +522,7 @@ namespace ARFoundationWithOpenCVForUnityExample
             HideObject();
 
             // Hide all existing marker objects first
-            HideAllObjects();
+            // HideAllObjects();
 
             // Update or create objects for each detected marker
             for (int i = 0; i < poseDataList.Count; i++)
@@ -410,14 +530,18 @@ namespace ARFoundationWithOpenCVForUnityExample
                 int markerId = markerIds[i];
                 PoseData poseData = poseDataList[i];
 
-                // Get or create object for this marker
                 GameObject markerObject = GetOrCreateMarkerObject(markerId);
 
                 if (markerObject != null)
                 {
-                    // Show and update the object
                     markerObject.SetActive(true);
-                    UpdateObjectTransform(markerObject, poseData);
+
+                    // حدّث مكانه بس إذا في PoseData جديد
+                    UpdateObjectTransform(markerObject, poseData, markerId);
+
+                    // ضبط الحجم
+                    float scaleFactor = markerLength / 1.0f;
+                    markerObject.transform.localScale = originalScale * scaleFactor;
                 }
             }
         }
@@ -476,24 +600,59 @@ namespace ARFoundationWithOpenCVForUnityExample
             return newObject;
         }
 
+
+        [SerializeField] private float markerLength = 0.188f; // المتر الحقيقي للماركر
+        private Vector3 originalScale; // نخزن الحجم الأصلي
+
+        // public void SnapToPlane()
+        // {
+        //     if (!isInitialized || arGameObject == null || raycastManager == null)
+        //         return;
+
+        //     Vector3 objectScreenPos = xrOrigin.Camera.WorldToScreenPoint(arGameObject.transform.position);
+        //     Vector2 screenPoint = new Vector2(objectScreenPos.x, objectScreenPos.y);
+
+        //     List<ARRaycastHit> hits = new List<ARRaycastHit>();
+
+        //     if (raycastManager.Raycast(screenPoint, hits, TrackableType.PlaneWithinPolygon))
+        //     {
+        //         Pose hitPose = hits[0].pose;
+
+        //         // ثبت على الـ Plane
+        //         arGameObject.transform.SetPositionAndRotation(hitPose.position, hitPose.rotation);
+
+        //         // احسب scale نسبةً للحجم الأصلي
+        //         float targetSize = markerLength; // الحجم اللي نبغاه (بالمتر)
+        //         float prefabSize = 1.0f; // اعتبر الحجم الأصلي للمكعب 1 متر
+
+        //         float scaleFactor = targetSize / prefabSize;
+
+        //         arGameObject.transform.localScale = originalScale * scaleFactor;
+
+        //         hasValidPose = true;
+        //         lastValidMatrix = Matrix4x4.TRS(hitPose.position, hitPose.rotation, arGameObject.transform.localScale);
+
+        //         Debug.Log($"ARObjectManager: Snapped with scaleFactor={scaleFactor}");
+        //     }
+        // }
         /// <summary>
         /// Update transform for a specific object
         /// </summary>
         /// <param name="obj">GameObject to update</param>
         /// <param name="poseData">Pose data</param>
-        private void UpdateObjectTransform(GameObject obj, PoseData poseData)
-        {
-            if (obj == null) return;
+        // private void UpdateObjectTransform(GameObject obj, PoseData poseData)
+        // {
+        //     if (obj == null) return;
 
-            // Convert pose data to transformation matrix
-            Matrix4x4 armMatrix = OpenCVARUtils.ConvertPoseDataToMatrix(ref poseData, true);
+        //     // Convert pose data to transformation matrix
+        //     Matrix4x4 armMatrix = OpenCVARUtils.ConvertPoseDataToMatrix(ref poseData, true);
 
-            // Transform to world space
-            Matrix4x4 worldMatrix = xrOrigin.Camera.transform.localToWorldMatrix * armMatrix;
+        //     // Transform to world space
+        //     Matrix4x4 worldMatrix = xrOrigin.Camera.transform.localToWorldMatrix * armMatrix;
 
-            // Apply transformation
-            OpenCVARUtils.SetTransformFromMatrix(obj.transform, ref worldMatrix);
-        }
+        //     // Apply transformation
+        //     OpenCVARUtils.SetTransformFromMatrix(obj.transform, ref worldMatrix);
+        // }
 
         /// <summary>
         /// Hide all marker objects
@@ -594,5 +753,7 @@ namespace ARFoundationWithOpenCVForUnityExample
         #endregion
     }
 }
+
+
 
 #endif

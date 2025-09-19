@@ -27,6 +27,10 @@ namespace ARFoundationWithOpenCVForUnityExample
     [RequireComponent(typeof(ARFoundationCamera2MatHelper))]
     public class ARFoundationCameraArUcoExample : MonoBehaviour
     {
+        [Header("ARObject Manager")]
+        [SerializeField]
+        public ARObjectManager arObjectManager;
+
 
         [Header("Performance")]
         [SerializeField]
@@ -48,7 +52,7 @@ namespace ARFoundationWithOpenCVForUnityExample
         /// <summary>
         /// The dictionary identifier.
         /// </summary>
-        public ArUcoDictionary dictionaryId = ArUcoDictionary.DICT_6X6_250;
+        public ArUcoDictionary dictionaryId = ArUcoDictionary.DICT_6X6_1000;
 
         /// <summary>
         /// Determines if applied the pose estimation.
@@ -75,11 +79,6 @@ namespace ARFoundationWithOpenCVForUnityExample
 
         [Space(10)]
 
-        /// <summary>
-        /// Determines if enable leap filter.
-        /// </summary>
-        public bool enableLerpFilter;
-
 
 
         /// <summary>
@@ -100,7 +99,40 @@ namespace ARFoundationWithOpenCVForUnityExample
         private ArUcoDetectionManager arucoDetectionManager;
         private CameraParametersManager cameraParametersManager;
         private PoseEstimationManager poseEstimationManager;
-        private ARObjectManager arObjectManager;
+
+
+
+        private void ConfigurePerformance()
+        {
+            int ram = SystemInfo.systemMemorySize; // بالميغابايت
+            int vram = SystemInfo.graphicsMemorySize; // GPU memory MB
+            string deviceModel = SystemInfo.deviceModel;
+            string gpu = SystemInfo.graphicsDeviceName;
+
+            Debug.Log($"Device: {deviceModel}, RAM={ram}MB, VRAM={vram}MB, GPU={gpu}");
+
+            if (ram >= 6000 && vram >= 2000) // أجهزة قوية (6GB RAM وفوق + GPU جيد)
+            {
+                webCamTextureToMatHelper.RequestedFPS = 60f;
+                detectFramesEvery = 1; // كل فريم
+                processingScale = 1.0f; // دقة كاملة
+                Debug.Log("Performance Mode: HIGH (60fps, full resolution)");
+            }
+            else if (ram >= 4000) // أجهزة متوسطة
+            {
+                webCamTextureToMatHelper.RequestedFPS = 30f;
+                detectFramesEvery = 2; // كل فريمين
+                processingScale = 0.75f; // 75% من الدقة
+                Debug.Log("Performance Mode: MEDIUM (30fps, medium resolution)");
+            }
+            else // أجهزة ضعيفة
+            {
+                webCamTextureToMatHelper.RequestedFPS = 20f;
+                detectFramesEvery = 3; // كل 3 فريمات
+                processingScale = 0.5f; // 50% من الدقة
+                Debug.Log("Performance Mode: LOW (20fps, half resolution)");
+            }
+        }
 
         // Performance optimization for ProcessFrame
 
@@ -137,6 +169,8 @@ namespace ARFoundationWithOpenCVForUnityExample
 
             InitializeManagers();
 
+            ConfigurePerformance();
+
 #if ENABLE_INPUT_SYSTEM
             forceProcessAction = new InputAction("ForceProcess", InputActionType.Button, "<Keyboard>/space");
             forceProcessAction.Enable();
@@ -164,9 +198,6 @@ namespace ARFoundationWithOpenCVForUnityExample
             Debug.Log($"PoseEstimationManager initialized: {poseEstimationManager != null}");
 
             // Initialize AR object manager
-            arObjectManager = new ARObjectManager(arGameObject, xROrigin, enableLerpFilter);
-            Debug.Log($"ARObjectManager initialized: {arObjectManager != null}");
-
 
             // Set performance optimization settings
             if (arObjectManager != null)
@@ -401,6 +432,8 @@ namespace ARFoundationWithOpenCVForUnityExample
 
                         arObjectManager.HideObject();
                         arObjectManager.UpdateMultipleObjects(poseDataList, markerIds, true);
+                        // 👇 هنا ممكن تنادي SnapToPlane بعد ما تحط الـ object
+
                     }
                     else if (arObjectManager != null)
                     {
@@ -454,90 +487,10 @@ namespace ARFoundationWithOpenCVForUnityExample
             }
         }
 
-        /// <summary>
-        /// Handle pose estimation toggle event
-        /// </summary>
-        /// <param name="enabled">Whether pose estimation is enabled</param>
-        private void OnPoseEstimationToggled(bool enabled)
-        {
-            applyEstimationPose = enabled;
-        }
-
-        /// <summary>
-        /// Handle lerp filter toggle event
-        /// </summary>
-        /// <param name="enabled">Whether lerp filter is enabled</param>
-        private void OnLerpFilterToggled(bool enabled)
-        {
-            enableLerpFilter = enabled;
-
-            // Update AR object manager
-            if (arObjectManager != null)
-            {
-                arObjectManager.EnableLerpFilter = enabled;
-            }
-        }
 
 
 
 
-        /// <summary>
-        /// Handle camera facing change request
-        /// </summary>
-        private void OnCameraFacingChangeRequested()
-        {
-            if (webCamTextureToMatHelper != null)
-            {
-                webCamTextureToMatHelper.RequestedIsFrontFacing = !webCamTextureToMatHelper.RequestedIsFrontFacing;
-            }
-        }
-
-        /// <summary>
-        /// Handle light estimation change request
-        /// </summary>
-        private void OnLightEstimationChangeRequested()
-        {
-            if (webCamTextureToMatHelper != null && webCamTextureToMatHelper.IsInitialized())
-            {
-                webCamTextureToMatHelper.RequestedLightEstimation =
-                    (webCamTextureToMatHelper.RequestedLightEstimation == LightEstimation.None)
-                        ? LightEstimation.AmbientColor | LightEstimation.AmbientIntensity
-                        : LightEstimation.None;
-            }
-        }
-
-        /// <summary>
-        /// Handle play request
-        /// </summary>
-        private void OnPlayRequested()
-        {
-            if (webCamTextureToMatHelper != null)
-            {
-                webCamTextureToMatHelper.Play();
-            }
-        }
-
-        /// <summary>
-        /// Handle pause request
-        /// </summary>
-        private void OnPauseRequested()
-        {
-            if (webCamTextureToMatHelper != null)
-            {
-                webCamTextureToMatHelper.Pause();
-            }
-        }
-
-        /// <summary>
-        /// Handle stop request
-        /// </summary>
-        private void OnStopRequested()
-        {
-            if (webCamTextureToMatHelper != null)
-            {
-                webCamTextureToMatHelper.Stop();
-            }
-        }
 
         #endregion
 
