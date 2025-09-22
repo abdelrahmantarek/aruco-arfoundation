@@ -378,8 +378,23 @@ namespace ARFoundationWithOpenCVForUnity.UnityIntegration.Helper.Source2Mat
             didUpdatePreviewPixelBufferInCurrentFrame = false;
         }
 
+        int frameCounter = 0;
+
         private void OnCameraFrameReceived(ARCameraFrameEventArgs eventArgs)
         {
+
+     
+
+    Debug.LogError("ARRRRRRRRRRRRRRR OnCameraFrameReceived");
+    // عالج كل ثاني frame فقط
+frameCounter++;
+if (frameCounter % 16 != 0)
+{
+    return;
+}
+    Debug.LogError("ARRRRRRRRRRRRRRR XXXXXXXXXXXXXXXXX");
+
+
             if (cameraManager == null || cameraManager.subsystem == null || !cameraManager.subsystem.running)
                 return;
 
@@ -393,6 +408,7 @@ namespace ARFoundationWithOpenCVForUnity.UnityIntegration.Helper.Source2Mat
             {
                 return;
             }
+
 
 
             if (hasInitDone && (previewWidth != image.width || previewHeight != image.height || previewFacingDirection != cameraManager.currentFacingDirection))

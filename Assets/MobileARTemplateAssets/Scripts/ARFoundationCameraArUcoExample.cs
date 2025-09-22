@@ -32,11 +32,6 @@ namespace ARFoundationWithOpenCVForUnityExample
         public ARObjectManager arObjectManager;
 
 
-        [Header("Performance")]
-        [SerializeField]
-        public int detectFramesEvery = 30; // تم تغييرها من 15 إلى 30
-
-        private int frameCount = 0;
 
         [Header("Processing Optimization")]
         [SerializeField]
@@ -111,27 +106,11 @@ namespace ARFoundationWithOpenCVForUnityExample
 
             Debug.Log($"Device: {deviceModel}, RAM={ram}MB, VRAM={vram}MB, GPU={gpu}");
 
-            if (ram >= 6000 && vram >= 2000) // أجهزة قوية (6GB RAM وفوق + GPU جيد)
-            {
-                webCamTextureToMatHelper.RequestedFPS = 60f;
-                detectFramesEvery = 1; // كل فريم
-                processingScale = 1.0f; // دقة كاملة
-                Debug.Log("Performance Mode: HIGH (60fps, full resolution)");
-            }
-            else if (ram >= 4000) // أجهزة متوسطة
-            {
-                webCamTextureToMatHelper.RequestedFPS = 30f;
-                detectFramesEvery = 2; // كل فريمين
-                processingScale = 0.75f; // 75% من الدقة
-                Debug.Log("Performance Mode: MEDIUM (30fps, medium resolution)");
-            }
-            else // أجهزة ضعيفة
-            {
-                webCamTextureToMatHelper.RequestedFPS = 20f;
-                detectFramesEvery = 3; // كل 3 فريمات
-                processingScale = 0.5f; // 50% من الدقة
-                Debug.Log("Performance Mode: LOW (20fps, half resolution)");
-            }
+
+            webCamTextureToMatHelper.RequestedFPS = 60f;
+
+            processingScale = 1.0f; // دقة كاملة
+            Debug.Log("Performance Mode: HIGH (60fps, full resolution)");
         }
 
         // Performance optimization for ProcessFrame
@@ -159,6 +138,7 @@ namespace ARFoundationWithOpenCVForUnityExample
                 webCamTextureToMatHelper.OutputColorFormat = Source2MatHelperColorFormat.RGBA;
 #if (UNITY_IOS || UNITY_ANDROID) && !UNITY_EDITOR && !DISABLE_ARFOUNDATION_API
                 webCamTextureToMatHelper.FrameMatAcquired += OnFrameMatAcquired;
+
 #endif
                 webCamTextureToMatHelper.Initialize();
             }
@@ -171,10 +151,10 @@ namespace ARFoundationWithOpenCVForUnityExample
 
             ConfigurePerformance();
 
-#if ENABLE_INPUT_SYSTEM
-            forceProcessAction = new InputAction("ForceProcess", InputActionType.Button, "<Keyboard>/space");
-            forceProcessAction.Enable();
-#endif
+            // #if ENABLE_INPUT_SYSTEM
+            //             forceProcessAction = new InputAction("ForceProcess", InputActionType.Button, "<Keyboard>/space");
+            //             forceProcessAction.Enable();
+            // #endif
         }
 
         /// <summary>
@@ -341,11 +321,6 @@ namespace ARFoundationWithOpenCVForUnityExample
         void Update()
         {
             // Auto performance optimization
-            if (autoOptimizePerformance && Time.time - lastPerformanceCheck > 2f)
-            {
-                OptimizePerformanceIfNeeded();
-                lastPerformanceCheck = Time.time;
-            }
 
             if (webCamTextureToMatHelper != null && webCamTextureToMatHelper.IsPlaying() && webCamTextureToMatHelper.DidUpdateThisFrame())
             {
@@ -356,29 +331,7 @@ namespace ARFoundationWithOpenCVForUnityExample
 
 #endif // (UNITY_IOS || UNITY_ANDROID) && !UNITY_EDITOR && !DISABLE_ARFOUNDATION_API
 
-        private void OptimizePerformanceIfNeeded()
-        {
-            float currentFPS = 1f / Time.deltaTime;
 
-            if (currentFPS < 20f) // إذا FPS أقل من 20
-            {
-                consecutiveLowFPS++;
-
-                if (consecutiveLowFPS >= 3) // 3 مرات متتالية
-                {
-                    // تحسين تلقائي
-                    detectFramesEvery = Mathf.Min(detectFramesEvery + 2, 10);
-                    webCamTextureToMatHelper.RequestedFPS = 20f;
-
-                    Debug.Log($"Auto-optimized: detectFramesEvery={detectFramesEvery}, FPS=20");
-                    consecutiveLowFPS = 0;
-                }
-            }
-            else
-            {
-                consecutiveLowFPS = 0;
-            }
-        }
 
         /// <summary>
         /// Process camera frame using the new manager system with performance optimization
@@ -386,8 +339,7 @@ namespace ARFoundationWithOpenCVForUnityExample
         /// <param name="rgbaMat">Input RGBA frame</param>
         private void ProcessFrame(Mat rgbaMat)
         {
-            frameCount++;
-            if (frameCount % detectFramesEvery != 0) return;
+            Debug.Log("OnFrameMatAcquired ProcessFrame");
 
             if (rgbaMat == null || rgbMat == null) return;
 
@@ -456,40 +408,6 @@ namespace ARFoundationWithOpenCVForUnityExample
         }
 
         #region UI Event Handlers
-
-        /// <summary>
-        /// Handle dictionary change event
-        /// </summary>
-        /// <param name="newDictionary">New dictionary to use</param>
-        private void OnDictionaryChanged(ArUcoDictionary newDictionary)
-        {
-            if (dictionaryId != newDictionary)
-            {
-                dictionaryId = newDictionary;
-
-                // Update ArUco detection manager
-                if (arucoDetectionManager != null)
-                {
-                    arucoDetectionManager.ChangeDictionary(newDictionary);
-                }
-
-                // Reset AR object transform
-                if (arObjectManager != null)
-                {
-                    arObjectManager.ResetObjectTransform();
-                }
-
-                // Reinitialize camera helper if needed
-                if (webCamTextureToMatHelper != null && webCamTextureToMatHelper.IsInitialized())
-                {
-                    webCamTextureToMatHelper.Initialize();
-                }
-            }
-        }
-
-
-
-
 
 
         #endregion

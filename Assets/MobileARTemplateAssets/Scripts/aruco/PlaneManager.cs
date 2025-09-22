@@ -71,6 +71,13 @@ public class PlaneManager : MonoBehaviour
 
     public void InitializePlaneManager()
     {
+
+        if (arPlaneManager.planePrefab == null)
+        {
+            arPlaneManager.planePrefab = CreateDefaultPlanePrefab();
+            Debug.Log("✅ PlaneManager: Created default ARPlane prefab in code");
+        }
+
         // Find ARPlaneManager if not assigned
         if (arPlaneManager == null)
             arPlaneManager = FindFirstObjectByType<ARPlaneManager>();
@@ -112,6 +119,36 @@ public class PlaneManager : MonoBehaviour
             Debug.LogError("❌ ARPlaneManager not found!");
         }
     }
+
+
+    private GameObject CreateDefaultPlanePrefab()
+    {
+        // إنشاء GameObject جديد للطائرة
+        GameObject planePrefab = new GameObject("GeneratedARPlane");
+
+        // إضافة مكونات أساسية
+        planePrefab.AddComponent<ARPlane>();                  // مكون ARPlane
+        planePrefab.AddComponent<ARPlaneMeshVisualizer>();    // يرسم Mesh للطائرة
+        planePrefab.AddComponent<MeshFilter>();               // يحتفظ بالـ Mesh
+        MeshRenderer meshRenderer = planePrefab.AddComponent<MeshRenderer>();
+
+        // تعيين مادة رمادية شفافة (خفيفة جدًا)
+        Material defaultMat = new Material(Shader.Find("Universal Render Pipeline/Unlit"))
+        {
+            color = new Color(0.5f, 0.5f, 0.5f, 0.15f) // رمادي فاتح، شفافية 15%
+        };
+        meshRenderer.material = defaultMat;
+
+        // ضبط الشفافية
+        meshRenderer.material.renderQueue = 2900; // شفاف بعد الأجسام الصلبة
+        meshRenderer.shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.Off;
+        meshRenderer.receiveShadows = false;
+
+        // إرجاع الـ prefab
+        return planePrefab;
+    }
+
+
 
     private void OnPlanesChanged(ARTrackablesChangedEventArgs<ARPlane> eventArgs)
     {

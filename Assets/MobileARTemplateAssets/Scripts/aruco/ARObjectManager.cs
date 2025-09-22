@@ -189,110 +189,16 @@ namespace ARFoundationWithOpenCVForUnityExample
 
         #region Object Transformation Methods
 
-        /// <summary>
-        /// Update AR object transform from pose data
-        /// </summary>
-        /// <param name="poseData">Pose data from marker detection</param>
-        // public void UpdateObjectTransform(PoseData poseData)
-        // {
-        //     if (!isInitialized)
-        //     {
-        //         Debug.LogWarning("ARObjectManager: Not initialized");
-        //         return;
-        //     }
-
-        //     // Ensure object is visible when updating transform
-        //     ShowObject();
-
-        //     // Convert pose data to transformation matrix
-        //     Matrix4x4 armMatrix = OpenCVARUtils.ConvertPoseDataToMatrix(ref poseData, true);
-
-        //     UpdateObjectTransform(armMatrix);
-        // }
-
-        /// <summary>
-        /// Update AR object transform from transformation matrix
-        /// </summary>
-        /// <param name="armMatrix">Transformation matrix in camera space</param>
-        // public void UpdateObjectTransform(Matrix4x4 armMatrix)
-        // {
-        //     if (!isInitialized)
-        //     {
-        //         Debug.LogWarning("ARObjectManager: Not initialized");
-        //         return;
-        //     }
-
-        //     // Transform the matrix from camera space to world space using the ARFoundation camera's transform
-        //     Matrix4x4 worldMatrix = xrOrigin.Camera.transform.localToWorldMatrix * armMatrix;
-
-        //     // Apply transformation matrices if available
-        //     if (fitARFoundationBackgroundMatrix != Matrix4x4.zero)
-        //     {
-        //         worldMatrix = fitARFoundationBackgroundMatrix * worldMatrix;
-        //     }
-
-        //     if (fitHelpersFlipMatrix != Matrix4x4.zero)
-        //     {
-        //         worldMatrix = fitHelpersFlipMatrix * worldMatrix;
-        //     }
-
-        //     // Apply the transformation
-        //     ApplyDirectTransform(worldMatrix);
-
-        //     hasValidPose = true;
-        //     lastValidMatrix = worldMatrix;
-        // }
 
 
-        // private Dictionary<int, bool> isPlacedOnPlane = new Dictionary<int, bool>();
-
-        // private void UpdateObjectTransform(GameObject obj, PoseData poseData, int markerId)
-        // {
-        //     if (obj == null) return;
-
-        //     float smoothFactor = 5f;
-
-        //     // Pose من ArUco
-        //     Matrix4x4 armMatrix = OpenCVARUtils.ConvertPoseDataToMatrix(ref poseData, true);
-        //     Matrix4x4 worldMatrix = xrOrigin.Camera.transform.localToWorldMatrix * armMatrix;
-
-        //     Vector3 pos = worldMatrix.GetColumn(3);
-        //     Quaternion rot = Quaternion.LookRotation(worldMatrix.GetColumn(2), worldMatrix.GetColumn(1));
-
-        //     // إذا لسا ما ثبتناه على plane
-        //     if (!isPlacedOnPlane.ContainsKey(markerId) || !isPlacedOnPlane[markerId])
-        //     {
-        //         obj.transform.SetPositionAndRotation(pos, rot); // زي الطريقة القديمة (في الهواء)
-
-        //         // جرب تلقى plane
-        //         Vector2 screenPoint = xrOrigin.Camera.WorldToScreenPoint(pos);
-        //         List<ARRaycastHit> hits = new List<ARRaycastHit>();
-
-        //         if (raycastManager.Raycast(screenPoint, hits, TrackableType.PlaneWithinPolygon))
-        //         {
-        //             Pose hitPose = hits[0].pose;
-        //             obj.transform.SetPositionAndRotation(hitPose.position, rot);
-
-        //             // اعتبره مثبت
-        //             isPlacedOnPlane[markerId] = true;
-        //             Debug.Log($"Marker {markerId} moved from air → Plane ✅");
-        //         }
-        //     }
-        //     else
-        //     {
-        //         // مثبت على plane → بس عدّل الدوران بالسلاسة
-        //         obj.transform.rotation = Quaternion.Slerp(obj.transform.rotation, rot, Time.deltaTime * smoothFactor);
-        //     }
-
-        //     // الحجم مضبوط
-        //     float scaleFactor = markerLength / 1.0f;
-        //     obj.transform.localScale = originalScale * scaleFactor;
-        // }
-
+        [SerializeField] private float updateDistanceThreshold = 0.010f; // 2 سم تقريباً
+        [SerializeField] private float moveSpeed = 16f;                  // متر/ثانية
+        [SerializeField] private float rotationSpeed = 180f;            // درجة/ثانية
+        [SerializeField] private float markerLength = 0.188f;           // طول الماركر الحقيقي بالمتر
+        [SerializeField] private float markerScaleFactor = 100f;        // تكبير إضافي للماركر
+        [SerializeField] private float planeScaleFactor = 1f;           // تكبير إضافي للبلان
 
         private Dictionary<int, bool> isPlacedOnPlane = new Dictionary<int, bool>();
-        [SerializeField] private float updateDistanceThreshold = 0.02f; // 2 سم تقريباً
-        [SerializeField] private float smoothFactor = 5f;
 
         private void UpdateObjectTransform(GameObject obj, PoseData poseData, int markerId)
         {
@@ -305,11 +211,13 @@ namespace ARFoundationWithOpenCVForUnityExample
             Vector3 markerPos = worldMatrix.GetColumn(3);
             Quaternion markerRot = Quaternion.LookRotation(worldMatrix.GetColumn(2), worldMatrix.GetColumn(1));
 
-            // وضع افتراضي: في الهواء
+            // الوضع الافتراضي: في الهواء
             Vector3 targetPos = markerPos;
             Quaternion targetRot = markerRot;
 
-            // جرب Raycast على plane
+            bool placedOnPlane = false;
+
+            // جرب Raycast على الـ plane
             Vector2 screenPoint = xrOrigin.Camera.WorldToScreenPoint(markerPos);
             List<ARRaycastHit> hits = new List<ARRaycastHit>();
 
@@ -319,27 +227,63 @@ namespace ARFoundationWithOpenCVForUnityExample
                 targetPos = hitPose.position;
 
                 // اعتبره مثبت على plane
+                placedOnPlane = true;
                 isPlacedOnPlane[markerId] = true;
             }
+            else
+            {
+                isPlacedOnPlane[markerId] = false;
+            }
 
-            // تحديث الموقع فقط إذا الفرق أكبر من threshold
+            // تأكد أن الكائن ظاهر
             if (!obj.activeInHierarchy)
-                obj.SetActive(true); // تأكد أنه ظاهر دائمًا
+                obj.SetActive(true);
 
-            if (Vector3.Distance(obj.transform.position, targetPos) > updateDistanceThreshold)
+            float distance = Vector3.Distance(obj.transform.position, targetPos);
+
+            // لو المسافة بعيدة جداً → نقفز مباشرة
+            if (distance > 0.5f)
             {
-                obj.transform.position = Vector3.Lerp(obj.transform.position, targetPos, Time.deltaTime * smoothFactor);
+                obj.transform.position = targetPos;
+                obj.transform.rotation = targetRot;
+            }
+            else
+            {
+                // تحديث الموقع فقط إذا الفرق أكبر من threshold
+                if (distance > updateDistanceThreshold)
+                {
+                    obj.transform.position = Vector3.MoveTowards(
+                        obj.transform.position,
+                        targetPos,
+                        Time.deltaTime * moveSpeed
+                    );
+                }
+
+                if (Quaternion.Angle(obj.transform.rotation, targetRot) > 1f)
+                {
+                    obj.transform.rotation = Quaternion.RotateTowards(
+                        obj.transform.rotation,
+                        targetRot,
+                        rotationSpeed * Time.deltaTime
+                    );
+                }
             }
 
-            if (Quaternion.Angle(obj.transform.rotation, targetRot) > 1f)
-            {
-                obj.transform.rotation = Quaternion.Slerp(obj.transform.rotation, targetRot, Time.deltaTime * smoothFactor);
-            }
-
-            // الحجم مضبوط
+            // تحديث الحجم
             float scaleFactor = markerLength / 1.0f;
             obj.transform.localScale = originalScale * scaleFactor;
+
+            // 🎨 تحديث اللون حسب الحالة
+            Renderer renderer = obj.GetComponent<Renderer>();
+            if (renderer != null)
+            {
+                if (placedOnPlane)
+                    renderer.material.color = Color.red; // مثبت على plane
+                else
+                    renderer.material.color = Color.blue;  // في الهواء
+            }
         }
+
 
 
         /// <summary>
@@ -601,7 +545,6 @@ namespace ARFoundationWithOpenCVForUnityExample
         }
 
 
-        [SerializeField] private float markerLength = 0.188f; // المتر الحقيقي للماركر
         private Vector3 originalScale; // نخزن الحجم الأصلي
 
         // public void SnapToPlane()
