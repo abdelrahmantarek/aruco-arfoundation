@@ -243,7 +243,7 @@ namespace ARFoundationWithOpenCVForUnityExample
     /// <returns>Distance in world units</returns>
     public float CalculateDistanceToMarker(PoseData poseData)
     {
-      Vector3 translation = poseData.Pos;
+      Vector3 translation = poseData.position;
       return translation.magnitude;
     }
 
@@ -254,7 +254,7 @@ namespace ARFoundationWithOpenCVForUnityExample
     /// <returns>Euler angles in degrees</returns>
     public Vector3 GetMarkerEulerAngles(PoseData poseData)
     {
-      return poseData.Rot.eulerAngles;
+      return poseData.rotation.eulerAngles;
     }
 
     #endregion

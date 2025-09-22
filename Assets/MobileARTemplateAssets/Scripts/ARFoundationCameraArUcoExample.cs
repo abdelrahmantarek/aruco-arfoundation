@@ -366,6 +366,7 @@ namespace ARFoundationWithOpenCVForUnityExample
             if (arucoDetectionManager != null)
             {
                 bool markersDetected = arucoDetectionManager.DetectMarkers(rgbMat);
+
                 Debug.Log($"DetectMarkers returned: {markersDetected}");
 
                 if (markersDetected && applyEstimationPose && poseEstimationManager != null && cameraParametersManager != null)
@@ -375,18 +376,31 @@ namespace ARFoundationWithOpenCVForUnityExample
 
                     if (poseDataList.Count > 0 && arObjectManager != null)
                     {
-                        List<int> markerIds = new List<int>();
+                        List<MarkerData> markers = new List<MarkerData>();
                         int markerCount = arucoDetectionManager.GetDetectedMarkerCount();
+
                         for (int i = 0; i < markerCount; i++)
                         {
-                            markerIds.Add(arucoDetectionManager.GetMarkerId(i));
+                            var markerData = new MarkerData();
+                            markerData.markerId = arucoDetectionManager.GetMarkerId(i);
+                            markerData.corners = ConvertCornersMatToVector3Array(
+                                arucoDetectionManager.GetMarkerCorners(i)
+                            );
+
+                            // ربط pose بالماركر (الترتيب عادةً يطابق بين poseDataList و markerIds)
+                            if (i < poseDataList.Count)
+                            {
+                                markerData.pose = poseDataList[i];
+                            }
+
+                            markerData.lastSeenTime = Time.time;
+                            markers.Add(markerData);
                         }
 
                         arObjectManager.HideObject();
-                        arObjectManager.UpdateMultipleObjects(poseDataList, markerIds, true);
-                        // 👇 هنا ممكن تنادي SnapToPlane بعد ما تحط الـ object
-
+                        arObjectManager.UpdateMultipleObjects(markers, true);
                     }
+
                     else if (arObjectManager != null)
                     {
                         arObjectManager.HideAllObjects();
@@ -405,6 +419,25 @@ namespace ARFoundationWithOpenCVForUnityExample
             // تحويل مرة واحدة في النهاية
             Imgproc.cvtColor(rgbMat, rgbaMat, Imgproc.COLOR_RGB2RGBA);
             OpenCVMatUtils.MatToTexture2D(rgbaMat, texture);
+        }
+
+        public Vector3[] ConvertCornersMatToVector3Array(Mat cornersMat)
+        {
+            if (cornersMat == null || cornersMat.empty())
+                return new Vector3[0];
+
+            int count = cornersMat.cols();
+            Vector3[] corners = new Vector3[count];
+
+            for (int i = 0; i < count; i++)
+            {
+                double[] point = cornersMat.get(0, i); // get(row, col)
+                float x = (float)point[0];
+                float y = (float)point[1];
+                corners[i] = new Vector3(x, y, 0); // نخلي Z = 0 لأنه 2D
+            }
+
+            return corners;
         }
 
         #region UI Event Handlers

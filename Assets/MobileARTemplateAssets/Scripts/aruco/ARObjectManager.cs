@@ -48,9 +48,6 @@ namespace ARFoundationWithOpenCVForUnityExample
         private GameObject prefabTemplate;
 
         // Performance optimization - frame rate control
-        private int frameSkipCount = 30;  // Update every 30 frames
-        private int currentFrameCount = 0;
-
 
         public enum PlacementMode { Direct, SnapToPlane }
         [SerializeField] private PlacementMode placementMode = PlacementMode.SnapToPlane;
@@ -88,19 +85,7 @@ namespace ARFoundationWithOpenCVForUnityExample
         /// </summary>
         public bool HasValidPose => hasValidPose;
 
-        /// <summary>
-        /// Gets or sets the frame skip count for performance optimization
-        /// </summary>
-        public int FrameSkipCount
-        {
-            get => frameSkipCount;
-            set => frameSkipCount = Mathf.Max(1, value);
-        }
 
-        /// <summary>
-        /// Gets the current frame count
-        /// </summary>
-        public int CurrentFrameCount => currentFrameCount;
 
         #endregion
 
@@ -200,12 +185,20 @@ namespace ARFoundationWithOpenCVForUnityExample
 
         private Dictionary<int, bool> isPlacedOnPlane = new Dictionary<int, bool>();
 
-        private void UpdateObjectTransform(GameObject obj, PoseData poseData, int markerId)
+        private void UpdateObjectTransform(GameObject obj, MarkerData marker, int markerId)
         {
             if (obj == null) return;
 
+            var pos = new PoseData();
+
+            if (marker.pose.HasValue)
+            {
+                pos.position = marker.pose.Value.position;
+                pos.rotation = marker.pose.Value.rotation;
+            }
+
             // Pose من ArUco
-            Matrix4x4 armMatrix = OpenCVARUtils.ConvertPoseDataToMatrix(ref poseData, true);
+            Matrix4x4 armMatrix = OpenCVARUtils.ConvertPoseDataToMatrix(ref pos, true);
             Matrix4x4 worldMatrix = xrOrigin.Camera.transform.localToWorldMatrix * armMatrix;
 
             Vector3 markerPos = worldMatrix.GetColumn(3);
@@ -273,6 +266,11 @@ namespace ARFoundationWithOpenCVForUnityExample
             float scaleFactor = markerLength / 1.0f;
             obj.transform.localScale = originalScale * scaleFactor;
 
+
+            // 📝 تحديث بيانات الماركر في الليستة
+            AddOrUpdateMarker(markerId, marker, placedOnPlane);
+
+
             // 🎨 تحديث اللون حسب الحالة
             Renderer renderer = obj.GetComponent<Renderer>();
             if (renderer != null)
@@ -285,18 +283,6 @@ namespace ARFoundationWithOpenCVForUnityExample
         }
 
 
-
-        /// <summary>
-        /// Apply transformation directly without filtering
-        /// </summary>
-        /// <param name="matrix">Transformation matrix</param>
-        private void ApplyDirectTransform(Matrix4x4 matrix)
-        {
-            if (arGameObject != null && arGameObject.transform != null)
-            {
-                OpenCVARUtils.SetTransformFromMatrix(arGameObject.transform, ref matrix);
-            }
-        }
 
 
         /// <summary>
@@ -436,59 +422,52 @@ namespace ARFoundationWithOpenCVForUnityExample
         /// <param name="poseDataList">List of pose data from marker detection</param>
         /// <param name="markerIds">List of corresponding marker IDs</param>
         /// <param name="forceUpdate">Force update regardless of frame count</param>
-        public void UpdateMultipleObjects(List<PoseData> poseDataList, List<int> markerIds, bool forceUpdate = false)
+        public void UpdateMultipleObjects(List<MarkerData> markers, bool forceUpdate = false)
         {
-            if (!isInitialized || poseDataList == null || markerIds == null)
+            if (!isInitialized || markers == null || markers.Count == 0)
             {
-                Debug.LogWarning("ARObjectManager: Not initialized or invalid data");
+                Debug.LogWarning("ARObjectManager: Not initialized or no markers to update");
                 return;
             }
 
-            if (poseDataList.Count != markerIds.Count)
-            {
-                Debug.LogWarning("ARObjectManager: Pose data and marker IDs count mismatch");
-                return;
-            }
-
-            // Check if we should update based on frame rate control
-            currentFrameCount++;
-            bool shouldUpdate = forceUpdate || (currentFrameCount >= frameSkipCount);
-
-            if (!shouldUpdate)
-            {
-                return; // Skip this frame for performance
-            }
-
-            // Reset frame counter
-            currentFrameCount = 0;
-
-            // Hide the original AR object to prevent duplication
+            // Hide base prefab (عشان ما يتكرر)
             HideObject();
 
-            // Hide all existing marker objects first
-            // HideAllObjects();
-
-            // Update or create objects for each detected marker
-            for (int i = 0; i < poseDataList.Count; i++)
+            // Loop على كل ماركر
+            foreach (var marker in markers)
             {
-                int markerId = markerIds[i];
-                PoseData poseData = poseDataList[i];
+                GameObject markerObject = GetOrCreateMarkerObject(marker.markerId);
 
-                GameObject markerObject = GetOrCreateMarkerObject(markerId);
-
-                if (markerObject != null)
+                if (markerObject != null && marker.pose != null)
                 {
                     markerObject.SetActive(true);
 
-                    // حدّث مكانه بس إذا في PoseData جديد
-                    UpdateObjectTransform(markerObject, poseData, markerId);
+                    // حدّث المكان والاتجاه
+                    UpdateObjectTransform(markerObject, marker, marker.markerId);
 
                     // ضبط الحجم
                     float scaleFactor = markerLength / 1.0f;
                     markerObject.transform.localScale = originalScale * scaleFactor;
+
+                    // ممكن تستخدم marker.corners هنا لو حابب ترسم outline أو debug
                 }
             }
         }
+
+
+        private void AddOrUpdateMarker(int id, MarkerData marker, bool placedOnPlane)
+        {
+            MarkerData existing = markers.Find(m => m.markerId == id);
+            if (existing != null)
+            {
+                existing = marker;
+            }
+            else
+            {
+                markers.Add(marker);
+            }
+        }
+
 
         /// <summary>
         /// Get existing object for marker or create new one
@@ -547,55 +526,7 @@ namespace ARFoundationWithOpenCVForUnityExample
 
         private Vector3 originalScale; // نخزن الحجم الأصلي
 
-        // public void SnapToPlane()
-        // {
-        //     if (!isInitialized || arGameObject == null || raycastManager == null)
-        //         return;
 
-        //     Vector3 objectScreenPos = xrOrigin.Camera.WorldToScreenPoint(arGameObject.transform.position);
-        //     Vector2 screenPoint = new Vector2(objectScreenPos.x, objectScreenPos.y);
-
-        //     List<ARRaycastHit> hits = new List<ARRaycastHit>();
-
-        //     if (raycastManager.Raycast(screenPoint, hits, TrackableType.PlaneWithinPolygon))
-        //     {
-        //         Pose hitPose = hits[0].pose;
-
-        //         // ثبت على الـ Plane
-        //         arGameObject.transform.SetPositionAndRotation(hitPose.position, hitPose.rotation);
-
-        //         // احسب scale نسبةً للحجم الأصلي
-        //         float targetSize = markerLength; // الحجم اللي نبغاه (بالمتر)
-        //         float prefabSize = 1.0f; // اعتبر الحجم الأصلي للمكعب 1 متر
-
-        //         float scaleFactor = targetSize / prefabSize;
-
-        //         arGameObject.transform.localScale = originalScale * scaleFactor;
-
-        //         hasValidPose = true;
-        //         lastValidMatrix = Matrix4x4.TRS(hitPose.position, hitPose.rotation, arGameObject.transform.localScale);
-
-        //         Debug.Log($"ARObjectManager: Snapped with scaleFactor={scaleFactor}");
-        //     }
-        // }
-        /// <summary>
-        /// Update transform for a specific object
-        /// </summary>
-        /// <param name="obj">GameObject to update</param>
-        /// <param name="poseData">Pose data</param>
-        // private void UpdateObjectTransform(GameObject obj, PoseData poseData)
-        // {
-        //     if (obj == null) return;
-
-        //     // Convert pose data to transformation matrix
-        //     Matrix4x4 armMatrix = OpenCVARUtils.ConvertPoseDataToMatrix(ref poseData, true);
-
-        //     // Transform to world space
-        //     Matrix4x4 worldMatrix = xrOrigin.Camera.transform.localToWorldMatrix * armMatrix;
-
-        //     // Apply transformation
-        //     OpenCVARUtils.SetTransformFromMatrix(obj.transform, ref worldMatrix);
-        // }
 
         /// <summary>
         /// Hide all marker objects
@@ -610,6 +541,8 @@ namespace ARFoundationWithOpenCVForUnityExample
                 }
             }
         }
+
+
 
         /// <summary>
         /// Get a unique color for each marker
@@ -640,30 +573,29 @@ namespace ARFoundationWithOpenCVForUnityExample
             return count;
         }
 
-        /// <summary>
-        /// Reset frame counter (useful for forcing immediate update)
-        /// </summary>
-        public void ResetFrameCounter()
+
+        private List<MarkerData> markers = new List<MarkerData>();
+
+        void Update()
         {
-            currentFrameCount = 0;
+            if (markers.Count > 0)
+            {
+                string markersJson = GetMarkersJson(markers);
+                Debug.Log($"[Markers JSON] {markersJson}");
+            }
         }
 
-        /// <summary>
-        /// Check if update should occur based on frame rate control
-        /// </summary>
-        /// <returns>True if update should occur</returns>
-        public bool ShouldUpdate()
+        private string GetMarkersJson(List<MarkerData> markers)
         {
-            return currentFrameCount >= frameSkipCount;
+            MarkerDataWrapper wrapper = new MarkerDataWrapper();
+            wrapper.markers = markers;
+            return JsonUtility.ToJson(wrapper);
         }
 
-        /// <summary>
-        /// Force next update regardless of frame count
-        /// </summary>
-        public void ForceNextUpdate()
-        {
-            currentFrameCount = frameSkipCount; // Force update on next call
-        }
+
+
+
+
 
         #endregion
 
@@ -698,5 +630,21 @@ namespace ARFoundationWithOpenCVForUnityExample
 }
 
 
+
+[System.Serializable]
+public class MarkerData
+{
+    public int markerId;
+    public PoseData? pose; // nullable
+    public Vector3[] corners;
+    public float lastSeenTime;
+    public bool placedOnPlane;
+}
+
+[System.Serializable]
+public class MarkerDataWrapper
+{
+    public List<MarkerData> markers;
+}
 
 #endif
