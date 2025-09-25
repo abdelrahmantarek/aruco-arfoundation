@@ -24,4 +24,11 @@ public class UnityBridge : MonoBehaviour
 
     }
 
+    public void forceUpdate(string message)
+    {
+        Debug.Log($"[Flutter->Unity] forceUpdate {message}");
+        aRObjectManager.forceUpdate = message.Contains("true");
+
+    }
+
 }

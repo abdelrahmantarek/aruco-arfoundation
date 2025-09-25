@@ -34,6 +34,7 @@ namespace ARFoundationWithOpenCVForUnityExample
         private Matrix4x4 fitHelpersFlipMatrix;
         private bool isInitialized = false;
 
+
         /// <summary>
         /// Determines if enable leap filter.
         /// </summary>
@@ -56,6 +57,7 @@ namespace ARFoundationWithOpenCVForUnityExample
 
         public enum PlacementMode { Direct, SnapToPlane }
         [SerializeField] private PlacementMode placementMode = PlacementMode.SnapToPlane;
+        [SerializeField] public bool forceUpdate = false;
 
 
         #endregion
@@ -192,105 +194,6 @@ namespace ARFoundationWithOpenCVForUnityExample
 
 
         private Dictionary<int, bool> isPlacedOnPlane = new Dictionary<int, bool>();
-
-        private void UpdateObjectTransform(GameObject obj, MarkerData marker, int markerId)
-        {
-            if (obj == null) return;
-
-            var pos = new PoseData();
-
-            if (marker.pose.HasValue)
-            {
-                pos.position = marker.pose.Value.position;
-                pos.rotation = marker.pose.Value.rotation;
-            }
-
-            // Pose من ArUco
-            Matrix4x4 armMatrix = OpenCVARUtils.ConvertPoseDataToMatrix(ref pos, true);
-            Matrix4x4 worldMatrix = xrOrigin.Camera.transform.localToWorldMatrix * armMatrix;
-
-            Vector3 markerPos = worldMatrix.GetColumn(3);
-            Quaternion markerRot = Quaternion.LookRotation(worldMatrix.GetColumn(2), worldMatrix.GetColumn(1));
-
-            // الوضع الافتراضي: في الهواء
-            Vector3 targetPos = markerPos;
-            Quaternion targetRot = markerRot;
-
-            bool placedOnPlane = false;
-
-            // جرب Raycast على الـ plane
-            Vector2 screenPoint = xrOrigin.Camera.WorldToScreenPoint(markerPos);
-
-            marker.screenPoint = screenPoint;
-
-            List<ARRaycastHit> hits = new List<ARRaycastHit>();
-
-            if (raycastManager.Raycast(screenPoint, hits, TrackableType.PlaneWithinPolygon))
-            {
-                Pose hitPose = hits[0].pose;
-                targetPos = hitPose.position;
-
-                // اعتبره مثبت على plane
-                placedOnPlane = true;
-                isPlacedOnPlane[markerId] = true;
-            }
-            else
-            {
-                isPlacedOnPlane[markerId] = false;
-            }
-
-            // تأكد أن الكائن ظاهر
-            if (showOnlyOnPlane && !placedOnPlane)
-            {
-                obj.SetActive(false);
-                return;
-            }
-            else
-            {
-                if (!obj.activeInHierarchy)
-                    obj.SetActive(true);
-            }
-
-            float distance = Vector3.Distance(obj.transform.position, targetPos);
-
-            // لو المسافة بعيدة جداً → نقفز مباشرة
-            if (distance > 0.5f)
-            {
-                obj.transform.position = targetPos;
-                obj.transform.rotation = targetRot;
-            }
-            else
-            {
-                // تحديث الموقع فقط إذا الفرق أكبر من threshold
-                if (distance > updateDistanceThreshold)
-                {
-                    obj.transform.position = Vector3.MoveTowards(
-                        obj.transform.position,
-                        targetPos,
-                        Time.deltaTime * moveSpeed
-                    );
-                }
-
-                if (Quaternion.Angle(obj.transform.rotation, targetRot) > 1f)
-                {
-                    obj.transform.rotation = Quaternion.RotateTowards(
-                        obj.transform.rotation,
-                        targetRot,
-                        rotationSpeed * Time.deltaTime
-                    );
-                }
-            }
-
-            // تحديث الحجم
-            float scaleFactor = markerLength / 1.0f;
-            obj.transform.localScale = originalScale * scaleFactor;
-
-
-            // 📝 تحديث بيانات الماركر في الليستة
-            AddOrUpdateMarker(markerId, marker, placedOnPlane);
-
-
-        }
 
 
 
@@ -432,7 +335,7 @@ namespace ARFoundationWithOpenCVForUnityExample
         /// <param name="poseDataList">List of pose data from marker detection</param>
         /// <param name="markerIds">List of corresponding marker IDs</param>
         /// <param name="forceUpdate">Force update regardless of frame count</param>
-        public void UpdateMultipleObjects(List<MarkerData> markers, bool forceUpdate = false)
+        public void UpdateMultipleObjects(List<MarkerData> markers)
         {
             if (!isInitialized || markers == null || markers.Count == 0)
             {
@@ -440,29 +343,100 @@ namespace ARFoundationWithOpenCVForUnityExample
                 return;
             }
 
-            // Hide base prefab (عشان ما يتكرر)
             HideObject();
 
-            // Loop على كل ماركر
             foreach (var marker in markers)
             {
+                // لو الماركر موجود مسبقاً → لا تحدثه
+                if (markerObjects.ContainsKey(marker.markerId) && !forceUpdate)
+                {
+                    continue;
+                }
+
                 GameObject markerObject = GetOrCreateMarkerObject(marker.markerId);
 
                 if (markerObject != null && marker.pose != null)
                 {
                     markerObject.SetActive(true);
 
-                    // حدّث المكان والاتجاه
+                    // أول تحديث فقط
                     UpdateObjectTransform(markerObject, marker, marker.markerId);
 
                     // ضبط الحجم
                     float scaleFactor = markerLength / 1.0f;
                     markerObject.transform.localScale = originalScale * scaleFactor;
-
-                    // ممكن تستخدم marker.corners هنا لو حابب ترسم outline أو debug
                 }
             }
         }
+
+        private void UpdateObjectTransform(GameObject obj, MarkerData marker, int markerId)
+        {
+            if (obj == null) return;
+
+            var pos = new PoseData();
+
+            if (marker.pose.HasValue)
+            {
+                pos.position = marker.pose.Value.position;
+                pos.rotation = marker.pose.Value.rotation;
+            }
+
+            // Pose من ArUco
+            Matrix4x4 armMatrix = OpenCVARUtils.ConvertPoseDataToMatrix(ref pos, true);
+            Matrix4x4 worldMatrix = xrOrigin.Camera.transform.localToWorldMatrix * armMatrix;
+
+            Vector3 markerPos = worldMatrix.GetColumn(3);
+            Quaternion markerRot = Quaternion.LookRotation(worldMatrix.GetColumn(2), worldMatrix.GetColumn(1));
+
+            // الوضع الافتراضي: اعتمد على ArUco
+            Vector3 targetPos = markerPos;
+            Quaternion targetRot = markerRot;
+
+            bool placedOnPlane = false;
+
+            // (اختياري) جرب Raycast عشان position بس
+            Vector2 screenPoint = xrOrigin.Camera.WorldToScreenPoint(markerPos);
+            marker.screenPoint = screenPoint;
+
+            List<ARRaycastHit> hits = new List<ARRaycastHit>();
+
+            if (raycastManager.Raycast(screenPoint, hits, TrackableType.PlaneWithinPolygon))
+            {
+                Pose hitPose = hits[0].pose;
+                targetPos = hitPose.position;
+
+                placedOnPlane = true;
+                isPlacedOnPlane[markerId] = true;
+            }
+            else
+            {
+                isPlacedOnPlane[markerId] = false;
+            }
+
+            // تأكد أنه ظاهر
+            if (showOnlyOnPlane && !placedOnPlane)
+            {
+                obj.SetActive(false);
+                return;
+            }
+            else
+            {
+                if (!obj.activeInHierarchy)
+                    obj.SetActive(true);
+            }
+
+            // ✅ تحديث مباشر بدون smoothing
+            obj.transform.position = targetPos;
+            obj.transform.rotation = targetRot;
+
+            // تحديث الحجم
+            float scaleFactor = markerLength / 1.0f;
+            obj.transform.localScale = originalScale * scaleFactor;
+
+            // 📝 تحديث بيانات الماركر
+            AddOrUpdateMarker(markerId, marker, placedOnPlane);
+        }
+
 
 
         private void AddOrUpdateMarker(int id, MarkerData marker, bool placedOnPlane)
@@ -598,7 +572,7 @@ namespace ARFoundationWithOpenCVForUnityExample
                 // حوّل الكائن نفسه إلى JSON
 
                 // أرسل للفلتر
-                // SendToFlutter.Send(markersJson);
+                SendToFlutter.Send(markersJson);
 
                 // Debug.Log($"[Markers JSON Payload] {markersJson}");
             }

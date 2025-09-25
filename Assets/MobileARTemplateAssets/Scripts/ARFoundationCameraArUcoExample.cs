@@ -398,7 +398,7 @@ namespace ARFoundationWithOpenCVForUnityExample
                         }
 
                         arObjectManager.HideObject();
-                        arObjectManager.UpdateMultipleObjects(markers, true);
+                        arObjectManager.UpdateMultipleObjects(markers);
                     }
 
                     else if (arObjectManager != null)
