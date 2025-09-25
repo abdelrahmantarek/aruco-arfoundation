@@ -472,6 +472,8 @@ namespace ARFoundationWithOpenCVForUnityExample
 
 #endif
     }
+
+
 }
 
 #endif

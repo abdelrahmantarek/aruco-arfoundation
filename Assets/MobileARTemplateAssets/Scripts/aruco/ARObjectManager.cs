@@ -7,6 +7,11 @@ using Unity.XR.CoreUtils;
 using static OpenCVForUnity.UnityIntegration.OpenCVARUtils;
 using UnityEngine.XR.ARFoundation;
 using UnityEngine.XR.ARSubsystems;
+// using UnityMessageManager; // Removed incorrect namespace
+// If you are using UnityFlutter plugin, use:
+// using FlutterUnityIntegration;
+using UnityEngine.SceneManagement;
+
 
 namespace ARFoundationWithOpenCVForUnityExample
 {
@@ -183,6 +188,9 @@ namespace ARFoundationWithOpenCVForUnityExample
         [SerializeField] private float markerScaleFactor = 100f;        // تكبير إضافي للماركر
         [SerializeField] private float planeScaleFactor = 1f;           // تكبير إضافي للبلان
 
+        [SerializeField] private bool showOnlyOnPlane = false; // خيار: اعرض فقط فوق البلان
+
+
         private Dictionary<int, bool> isPlacedOnPlane = new Dictionary<int, bool>();
 
         private void UpdateObjectTransform(GameObject obj, MarkerData marker, int markerId)
@@ -212,6 +220,9 @@ namespace ARFoundationWithOpenCVForUnityExample
 
             // جرب Raycast على الـ plane
             Vector2 screenPoint = xrOrigin.Camera.WorldToScreenPoint(markerPos);
+
+            marker.screenPoint = screenPoint;
+
             List<ARRaycastHit> hits = new List<ARRaycastHit>();
 
             if (raycastManager.Raycast(screenPoint, hits, TrackableType.PlaneWithinPolygon))
@@ -229,8 +240,16 @@ namespace ARFoundationWithOpenCVForUnityExample
             }
 
             // تأكد أن الكائن ظاهر
-            if (!obj.activeInHierarchy)
-                obj.SetActive(true);
+            if (showOnlyOnPlane && !placedOnPlane)
+            {
+                obj.SetActive(false);
+                return;
+            }
+            else
+            {
+                if (!obj.activeInHierarchy)
+                    obj.SetActive(true);
+            }
 
             float distance = Vector3.Distance(obj.transform.position, targetPos);
 
@@ -271,15 +290,6 @@ namespace ARFoundationWithOpenCVForUnityExample
             AddOrUpdateMarker(markerId, marker, placedOnPlane);
 
 
-            // 🎨 تحديث اللون حسب الحالة
-            Renderer renderer = obj.GetComponent<Renderer>();
-            if (renderer != null)
-            {
-                if (placedOnPlane)
-                    renderer.material.color = Color.red; // مثبت على plane
-                else
-                    renderer.material.color = Color.blue;  // في الهواء
-            }
         }
 
 
@@ -576,25 +586,23 @@ namespace ARFoundationWithOpenCVForUnityExample
 
         private List<MarkerData> markers = new List<MarkerData>();
 
+
         void Update()
         {
             if (markers.Count > 0)
             {
-                string markersJson = GetMarkersJson(markers);
-                Debug.Log($"[Markers JSON] {markersJson}");
+                // حوّل الماركرز إلى JSON Array
+                List<MarkerExport> exports = MarkerMapper.MapList(markers);
+                string markersJson = JsonHelper.ToJson(exports.ToArray(), true);
+
+                // حوّل الكائن نفسه إلى JSON
+
+                // أرسل للفلتر
+                // SendToFlutter.Send(markersJson);
+
+                // Debug.Log($"[Markers JSON Payload] {markersJson}");
             }
         }
-
-        private string GetMarkersJson(List<MarkerData> markers)
-        {
-            MarkerDataWrapper wrapper = new MarkerDataWrapper();
-            wrapper.markers = markers;
-            return JsonUtility.ToJson(wrapper);
-        }
-
-
-
-
 
 
         #endregion
@@ -625,11 +633,25 @@ namespace ARFoundationWithOpenCVForUnityExample
             Debug.Log("ARObjectManager: Disposed");
         }
 
+        public void resetObjects()
+        {
+            foreach (var kvp in markerObjects)
+            {
+                if (kvp.Value != null)
+                {
+                    Object.Destroy(kvp.Value); // استخدم Destroy العادي بدل Clear بس
+                }
+            }
+            markerObjects.Clear();
+            Debug.Log("ARObjectManager: resetObjects Object Destroy");
+        }
+
+
         #endregion
     }
+
+
 }
-
-
 
 [System.Serializable]
 public class MarkerData
@@ -637,9 +659,12 @@ public class MarkerData
     public int markerId;
     public PoseData? pose; // nullable
     public Vector3[] corners;
+    public Vector2? screenPoint;
     public float lastSeenTime;
     public bool placedOnPlane;
 }
+
+
 
 [System.Serializable]
 public class MarkerDataWrapper
