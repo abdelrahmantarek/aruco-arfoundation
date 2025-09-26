@@ -11,6 +11,8 @@ using UnityEngine.XR.ARSubsystems;
 // If you are using UnityFlutter plugin, use:
 // using FlutterUnityIntegration;
 using UnityEngine.SceneManagement;
+using UnityEngine.Timeline;
+using System.Linq;
 
 
 namespace ARFoundationWithOpenCVForUnityExample
@@ -50,7 +52,6 @@ namespace ARFoundationWithOpenCVForUnityExample
         private Matrix4x4 lastValidMatrix = Matrix4x4.identity;
 
         // Multiple objects support
-        private Dictionary<int, GameObject> markerObjects = new Dictionary<int, GameObject>();
         private GameObject prefabTemplate;
 
         // Performance optimization - frame rate control
@@ -335,6 +336,7 @@ namespace ARFoundationWithOpenCVForUnityExample
         /// <param name="poseDataList">List of pose data from marker detection</param>
         /// <param name="markerIds">List of corresponding marker IDs</param>
         /// <param name="forceUpdate">Force update regardless of frame count</param>
+
         public void UpdateMultipleObjects(List<MarkerData> markers)
         {
             if (!isInitialized || markers == null || markers.Count == 0)
@@ -347,123 +349,123 @@ namespace ARFoundationWithOpenCVForUnityExample
 
             foreach (var marker in markers)
             {
-                // لو الماركر موجود مسبقاً → لا تحدثه
-                if (markerObjects.ContainsKey(marker.markerId) && !forceUpdate)
-                {
+                if (marker.pose == null)
                     continue;
-                }
 
-                GameObject markerObject = GetOrCreateMarkerObject(marker.markerId);
-
-                if (markerObject != null && marker.pose != null)
+                // استخرج مكان واتجاه الماركر من ArUco
+                PoseData pos = new PoseData
                 {
-                    markerObject.SetActive(true);
+                    position = marker.pose.Value.position,
+                    rotation = marker.pose.Value.rotation
+                };
 
-                    // أول تحديث فقط
-                    UpdateObjectTransform(markerObject, marker, marker.markerId);
+                Matrix4x4 armMatrix = OpenCVARUtils.ConvertPoseDataToMatrix(ref pos, true);
+                Matrix4x4 worldMatrix = xrOrigin.Camera.transform.localToWorldMatrix * armMatrix;
 
-                    // ضبط الحجم
-                    float scaleFactor = markerLength / 1.0f;
-                    markerObject.transform.localScale = originalScale * scaleFactor;
+                Vector3 markerPos = worldMatrix.GetColumn(3);
+                Quaternion markerRot = Quaternion.LookRotation(worldMatrix.GetColumn(2), worldMatrix.GetColumn(1));
+
+                // Raycast على الـ Plane
+                Vector2 screenPoint = xrOrigin.Camera.WorldToScreenPoint(markerPos);
+                List<ARRaycastHit> hits = new List<ARRaycastHit>();
+
+
+
+                if (raycastManager.Raycast(screenPoint, hits, TrackableType.PlaneWithinPolygon))
+                {
+                    Pose hitPose = hits[0].pose;
+
+                    // لو الماركر موجود مسبقاً → لا تحدثه إلا إذا forceUpdate
+                    if (existMarker(marker.markerId) && !forceUpdate)
+                        continue;
+
+                    // أنشئ أو أحضر الـ Object
+                    GameObject markerObject = GetOrCreateMarkerObject(marker);
+
+                    if (markerObject != null)
+                    {
+                        markerObject.SetActive(true);
+
+                        // تحديث الترانسفورم
+                        markerObject.transform.position = hitPose.position;
+                        markerObject.transform.rotation = markerRot; // خليها متوافقة مع pose
+
+                        // ضبط الحجم
+                        float scaleFactor = markerLength / 1.0f;
+                        markerObject.transform.localScale = originalScale * scaleFactor;
+
+                        // update final data into marker
+                        pos.position = markerPos;
+                        pos.rotation = markerRot;
+
+                        pos.hitPosition = hitPose.position;
+                        pos.hitRotation = hitPose.rotation;
+
+
+                        marker.screenPoint = screenPoint;
+                        marker.pose = pos;
+                        marker.gameObject = markerObject;
+
+                        // تحديث البيانات
+                        AddOrUpdateMarker(marker, true);
+                    }
+
+                }
+                else
+                {
+                    Debug.Log($"Marker {marker.markerId} skipped (not on plane).");
                 }
             }
         }
 
-        private void UpdateObjectTransform(GameObject obj, MarkerData marker, int markerId)
+        private void AddOrUpdateMarker(MarkerData marker, bool placedOnPlane)
         {
-            if (obj == null) return;
-
-            var pos = new PoseData();
-
-            if (marker.pose.HasValue)
+            if (existMarker(marker))
             {
-                pos.position = marker.pose.Value.position;
-                pos.rotation = marker.pose.Value.rotation;
-            }
 
-            // Pose من ArUco
-            Matrix4x4 armMatrix = OpenCVARUtils.ConvertPoseDataToMatrix(ref pos, true);
-            Matrix4x4 worldMatrix = xrOrigin.Camera.transform.localToWorldMatrix * armMatrix;
-
-            Vector3 markerPos = worldMatrix.GetColumn(3);
-            Quaternion markerRot = Quaternion.LookRotation(worldMatrix.GetColumn(2), worldMatrix.GetColumn(1));
-
-            // الوضع الافتراضي: اعتمد على ArUco
-            Vector3 targetPos = markerPos;
-            Quaternion targetRot = markerRot;
-
-            bool placedOnPlane = false;
-
-            // (اختياري) جرب Raycast عشان position بس
-            Vector2 screenPoint = xrOrigin.Camera.WorldToScreenPoint(markerPos);
-            marker.screenPoint = screenPoint;
-
-            List<ARRaycastHit> hits = new List<ARRaycastHit>();
-
-            if (raycastManager.Raycast(screenPoint, hits, TrackableType.PlaneWithinPolygon))
-            {
-                Pose hitPose = hits[0].pose;
-                targetPos = hitPose.position;
-
-                placedOnPlane = true;
-                isPlacedOnPlane[markerId] = true;
+                var markerData = getMarker(marker.markerId);
+                // تحديث المرجع بدل الاستبدال
+                markerData.pose = marker.pose;
+                markerData.corners = marker.corners;
+                markerData.screenPoint = marker.screenPoint;
+                markerData.lastSeenTime = marker.lastSeenTime;
+                markerData.placedOnPlane = placedOnPlane;
+                markerData.gameObject = marker.gameObject; // أضف هذا
             }
             else
             {
-                isPlacedOnPlane[markerId] = false;
-            }
-
-            // تأكد أنه ظاهر
-            if (showOnlyOnPlane && !placedOnPlane)
-            {
-                obj.SetActive(false);
-                return;
-            }
-            else
-            {
-                if (!obj.activeInHierarchy)
-                    obj.SetActive(true);
-            }
-
-            // ✅ تحديث مباشر بدون smoothing
-            obj.transform.position = targetPos;
-            obj.transform.rotation = targetRot;
-
-            // تحديث الحجم
-            float scaleFactor = markerLength / 1.0f;
-            obj.transform.localScale = originalScale * scaleFactor;
-
-            // 📝 تحديث بيانات الماركر
-            AddOrUpdateMarker(markerId, marker, placedOnPlane);
-        }
-
-
-
-        private void AddOrUpdateMarker(int id, MarkerData marker, bool placedOnPlane)
-        {
-            MarkerData existing = markers.Find(m => m.markerId == id);
-            if (existing != null)
-            {
-                existing = marker;
-            }
-            else
-            {
+                marker.placedOnPlane = placedOnPlane;
                 markers.Add(marker);
             }
         }
 
+
+
+        private bool existMarker(MarkerData marker)
+        {
+            return markers.Find(m => m.markerId == marker.markerId) != null;
+        }
+        private bool existMarker(int markerId)
+        {
+            return markers.Find(m => m.markerId == markerId) != null;
+        }
+
+        private MarkerData getMarker(int markerId)
+        {
+            return markers.First(m => m.markerId == markerId);
+        }
 
         /// <summary>
         /// Get existing object for marker or create new one
         /// </summary>
         /// <param name="markerId">Marker ID</param>
         /// <returns>GameObject for the marker</returns>
-        private GameObject GetOrCreateMarkerObject(int markerId)
+        private GameObject GetOrCreateMarkerObject(MarkerData marker)
         {
-            // Check if object already exists for this marker
-            if (markerObjects.ContainsKey(markerId))
+            // Check if object already exists
+            if (existMarker(marker.markerId))
             {
-                return markerObjects[markerId];
+                return getMarker(marker.markerId).gameObject;
             }
 
             // Create new object
@@ -471,41 +473,39 @@ namespace ARFoundationWithOpenCVForUnityExample
 
             if (prefabTemplate != null)
             {
-                // Use prefab template
                 newObject = Object.Instantiate(prefabTemplate);
-                newObject.name = $"ARObject_Marker_{markerId}";
+                newObject.name = $"ARObject_Marker_{marker.markerId}";
             }
             else if (arGameObject != null)
             {
-                // Use original ARGameObject as template
                 newObject = Object.Instantiate(arGameObject.gameObject);
-                newObject.name = $"ARObject_Marker_{markerId}";
+                newObject.name = $"ARObject_Marker_{marker.markerId}";
             }
             else
             {
-                // Create simple cube as fallback
                 newObject = GameObject.CreatePrimitive(PrimitiveType.Cube);
-                newObject.name = $"ARObject_Marker_{markerId}";
-                newObject.transform.localScale = Vector3.one * 0.1f; // 10cm cube
+                newObject.name = $"ARObject_Marker_{marker.markerId}";
+                newObject.transform.localScale = Vector3.one * 0.1f;
 
-                // Add a colored material
                 Renderer renderer = newObject.GetComponent<Renderer>();
                 if (renderer != null)
                 {
                     Material mat = new Material(Shader.Find("Standard"));
-                    mat.color = GetColorForMarker(markerId);
+                    mat.color = GetColorForMarker(marker.markerId);
                     renderer.material = mat;
                 }
             }
 
-            if (newObject != null)
-            {
-                markerObjects[markerId] = newObject;
-                Debug.Log($"ARObjectManager: Created object for marker {markerId}");
-            }
-
             return newObject;
         }
+
+
+
+
+
+
+
+
 
 
         private Vector3 originalScale; // نخزن الحجم الأصلي
@@ -517,11 +517,11 @@ namespace ARFoundationWithOpenCVForUnityExample
         /// </summary>
         public void HideAllObjects()
         {
-            foreach (var kvp in markerObjects)
+            foreach (var kvp in markers)
             {
-                if (kvp.Value != null)
+                if (kvp.gameObject != null)
                 {
-                    kvp.Value.SetActive(false);
+                    kvp.gameObject.SetActive(false);
                 }
             }
         }
@@ -547,9 +547,9 @@ namespace ARFoundationWithOpenCVForUnityExample
         public int GetActiveObjectsCount()
         {
             int count = 0;
-            foreach (var kvp in markerObjects)
+            foreach (var kvp in markers)
             {
-                if (kvp.Value != null && kvp.Value.activeSelf)
+                if (kvp != null && kvp.gameObject.activeSelf)
                 {
                     count++;
                 }
@@ -589,14 +589,14 @@ namespace ARFoundationWithOpenCVForUnityExample
         public void Dispose()
         {
             // Destroy all marker objects
-            foreach (var kvp in markerObjects)
+            foreach (var kvp in markers)
             {
-                if (kvp.Value != null)
+                if (kvp.gameObject != null)
                 {
-                    Object.DestroyImmediate(kvp.Value);
+                    Object.DestroyImmediate(kvp.gameObject);
                 }
             }
-            markerObjects.Clear();
+            markers.Clear();
 
             arGameObject = null;
             xrOrigin = null;
@@ -609,14 +609,14 @@ namespace ARFoundationWithOpenCVForUnityExample
 
         public void resetObjects()
         {
-            foreach (var kvp in markerObjects)
+            foreach (var kvp in markers)
             {
-                if (kvp.Value != null)
+                if (kvp.gameObject != null)
                 {
-                    Object.Destroy(kvp.Value); // استخدم Destroy العادي بدل Clear بس
+                    Object.Destroy(kvp.gameObject); // استخدم Destroy العادي بدل Clear بس
                 }
             }
-            markerObjects.Clear();
+            markers.Clear();
             Debug.Log("ARObjectManager: resetObjects Object Destroy");
         }
 
@@ -627,23 +627,5 @@ namespace ARFoundationWithOpenCVForUnityExample
 
 }
 
-[System.Serializable]
-public class MarkerData
-{
-    public int markerId;
-    public PoseData? pose; // nullable
-    public Vector3[] corners;
-    public Vector2? screenPoint;
-    public float lastSeenTime;
-    public bool placedOnPlane;
-}
-
-
-
-[System.Serializable]
-public class MarkerDataWrapper
-{
-    public List<MarkerData> markers;
-}
 
 #endif

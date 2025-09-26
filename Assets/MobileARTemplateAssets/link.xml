@@ -1,0 +1,5 @@
+<linker>
+  <assembly fullname="MobileARTemplateAssets">
+    <type fullname="*" preserve="all"/>
+  </assembly>
+</linker>

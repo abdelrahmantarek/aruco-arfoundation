@@ -1,6 +1,7 @@
 using UnityEngine;
 using System.Collections.Generic;
 using System.Linq;
+using static OpenCVForUnity.UnityIntegration.OpenCVARUtils;
 
 public static class MarkerMapper
 {
@@ -95,4 +96,28 @@ public static class JsonHelper
   {
     public T[] aruco_data_list;
   }
+}
+
+
+[System.Serializable]
+public class MarkerData
+{
+  public int markerId;
+  public PoseData? pose; // nullable
+  public Vector3[] corners;
+  public Vector2? screenPoint;
+  public float lastSeenTime;
+  public bool placedOnPlane;
+  public GameObject gameObject; // nullable
+
+  // public UnityEngine.XR.ARFoundation.ARAnchor anchor; // ✨ هنا نخزن الأنكور
+
+}
+
+
+
+[System.Serializable]
+public class MarkerDataWrapper
+{
+  public List<MarkerData> markers;
 }
